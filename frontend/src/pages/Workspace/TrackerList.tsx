@@ -2,7 +2,7 @@ import { TaskClassificationMenu } from "./TaskClassificationMenu";
 import { TrackerHomeLink } from "../../components/Workspace/TrackerHomeLink";
 import { BrandedHeader } from "../../components/Workspace/BrandedHeader";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
-import { useEffect, useId, useRef, useState, type MouseEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "../../utils/hooks/useDebouncedValue";
@@ -215,7 +215,7 @@ export function TrackerListPage({ queue, header }: { queue?: TaskQueue; header?:
     </div>
     <QueryState loading={needsDefaults || (view === "list" ? query.isLoading : timeline.isLoading)} error={error} keepDataOnError={view === "list" ? !!query.data : !!timeline.data} retry={() => { if (view === "list") void query.refetch();else void timeline.refetch(); }}>
       {view === "calendar" ? <TrackerCalendar tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} /> : view === "gantt" ? <TrackerGantt tasks={tasks} range={range} month={month} onMonth={value => update("month", value)} zoom={zoom} onZoom={value => update("zoom", value)} /> : tasks.length ? <div className={s.tableWrap} aria-busy={listBusy || undefined}>
-        <table className={s.table} aria-label="Список задач">
+        <table className={s.table} aria-label="Список задач" {...columnFit(tasks)}>
           <thead><tr><th scope="col" className={s.colKey}>Ключ</th><th scope="col">Задача</th><th scope="col" className={s.colAssignees}>Исполнители</th><th scope="col" className={s.colStatus}>Статус</th><th scope="col" className={s.colDeadline} aria-sort={filters.sort === "deadline" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("deadline")}>Дедлайн {filters.sort === "deadline" && (filters.order === "asc" ? "↑" : "↓")}</button></th>{showScope && <th scope="col" className={s.colScope}>Команда</th>}<th scope="col" className={s.colUpdated} aria-sort={filters.sort === "updated" ? filters.order === "desc" ? "descending" : "ascending" : "none"}><button onClick={() => changeSort("updated")}>Обновлено {filters.sort === "updated" && (filters.order === "asc" ? "↑" : "↓")}</button></th></tr></thead>
           <tbody>{tasks.map((task) => <tr key={task.task_id} tabIndex={0} aria-label={`Открыть задачу ${task.task_key ?? task.title}`} {...prefetchTask(task.task_id)} onClick={(event) => open(event, task)} onAuxClick={(event) => open(event, task)} onKeyDown={(event) => openKeyboard(event, task)}>
             <td className={s.key} data-label="Ключ"><div className={s.keyRow}><div className={s.classificationControls}><TaskClassificationMenu task={task} field="task_type" iconOnly /><TaskClassificationMenu task={task} field="priority" iconOnly /></div><span className={s.keyName}><span className={s.keyText}>{task.task_key ?? "Задача"}</span><TrackerFavoriteButton task={task} compact /></span></div></td>
@@ -254,6 +254,13 @@ function RefusedCreate({ queue, reason }: { queue: TaskQueue; reason: string }) 
 function Assignees({ people }: { people: UserRef[] }) {
   const [first] = people, rest = people.slice(1), names = rest.map(person => person.display_name).join(", ");
   return <div>{first && <UserChip user={first} />}{rest.length > 0 && <span className={s.morePeople} title={`Ещё: ${names}`}>+{rest.length}<span className={w.visuallyHidden}> — ещё исполнители: {names}</span></span>}</div>;
+}
+/** At a laptop width the key row and a date with its year stay on one line (owner 2026-11-09): the key column grows with
+ *  the longest key on the page, and a date column that shows a year somewhere is as wide as such a date (the CSS). */
+function columnFit(tasks: Task[]) {
+  const longest = Math.max(0, ...tasks.map(task => [...(task.task_key ?? "Задача")].length));
+  const year = (value?: string | null) => !!value && shortDate(value) === displayDate(value);
+  return { style: { "--key-chars": longest } as CSSProperties, "data-year-deadline": tasks.some(task => year(task.deadline_at)) || undefined, "data-year-updated": tasks.some(task => year(task.updated_at)) || undefined };
 }
 /** A list date without the current year (D-02); the tooltip keeps the full date and what it is. */
 function ListDate({ value, label }: { value: string; label: string }) {
