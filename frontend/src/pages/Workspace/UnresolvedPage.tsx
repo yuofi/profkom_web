@@ -84,6 +84,9 @@ export function UnresolvedPage() {
   });
   const items = query.data?.pages.flatMap(page => page.items);
   const total = query.data?.pages[0]?.total ?? items?.length ?? 0, shown = items?.length ?? 0;
+  // While a new filter loads, the earlier rows stay on screen, dimmed. An earlier answer without rows
+  // is not this filter's answer: the page says it is loading, and the empty text waits for the reply.
+  const loading = query.isLoading || (query.isPlaceholderData && !shown);
   // «Показать ещё» keeps the keyboard focus while its page loads: aria-disabled, as `disabled`
   // on the focused button drops the focus to <body>. The last page removes the button, so its
   // focus moves to the first row that page added.
@@ -98,9 +101,9 @@ export function UnresolvedPage() {
   return <section className={s.page}>
     <BrandedHeader className={s.header}><div><TrackerHomeLink /><h1 className={w.title}>Оставшаяся работа</h1><p className={w.description}>Незавершённые назначения и решения по ККР. Прежняя история сохраняется; новое назначение создаётся отдельно.</p></div><div className={s.headerActions}><Link to="/tasks" className={w.button}>Все задачи</Link>{seasonId && <Link to="/tasks/unresolved" className={w.button}>Все сезоны</Link>}</div></BrandedHeader>
     {!allowed ? <Empty>Нет доступа к разделу «Оставшаяся работа».</Empty> : <>
-      <div className={s.toolbar}><label className={w.check}><input type="checkbox" checked={onlyUnavailable} onChange={event => { const checked = event.target.checked;changeFilter(() => setOnlyUnavailable(checked)); }} />Только без доступного исполнителя</label>{seasonId && <span className={s.seasonFilter}>Выбранный сезон</span>}<span className={s.count} aria-live="polite">Назначений: {total}{!!items && items.length < total && ` · показано ${items.length}`}</span></div>
+      <div className={s.toolbar}><label className={w.check}><input type="checkbox" checked={onlyUnavailable} onChange={event => { const checked = event.target.checked;changeFilter(() => setOnlyUnavailable(checked)); }} />Только без доступного исполнителя</label>{seasonId && <span className={s.seasonFilter}>Выбранный сезон</span>}<span className={s.count} aria-live="polite">{!loading && <>Назначений: {total}{!!items && items.length < total && ` · показано ${items.length}`}</>}</span></div>
       {saved && <p role="status" className={w.success}>{saved}</p>}
-      <QueryState keepDataOnError={!!query.data} loading={query.isLoading} error={query.error} retry={() => { void query.refetch(); }}>
+      <QueryState keepDataOnError={!!query.data} loading={loading} error={query.error} retry={() => { void query.refetch(); }}>
         {!!items?.length && <div className={s.tableWrap} aria-busy={query.isPlaceholderData || undefined}><table className={s.table} aria-label="Оставшаяся работа по назначениям">
           <thead><tr>{["Задача", "Исполнитель", "Команда", "Учёт ККР", "Доступ исполнителя", "Дедлайн, МСК"].map(title => <th scope="col" key={title}>{title}</th>)}</tr></thead>
           <tbody ref={rows}>{items.map(item => <tr key={item.assignment.assignment_id}>
