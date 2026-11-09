@@ -30,6 +30,16 @@ new event or subevent may continue from `GET /report-series/continuable`
 (`["reports", "series", "continuable", parentEventId]`, reread with `["reports"]`
 after every workspace command).
 
+The merit records of a season («Записи» on the merits page) come whole from one
+`GET /merits?season_id=…`: the route returns everything the reader may see with
+`next_cursor: null`, so the search and the five filters run on the client over every
+record, and only the drawing is limited to 20 rows at a time («Показать ещё»). Each
+recipient's KKR comes from `GET /assessments` once per merit kind (`source_kind`
+`chair_merit`, `head_merit`, `block_volunteer`, `subevent_volunteer`, every page of each)
+under `["assessments", "merits", seasonId]`, so the season's task contributions are not
+read for it. Only a session with `view_kkr` asks; the server refuses others, and their
+list has no KKR column.
+
 Directory-card avatars use native lazy loading so off-screen protected images do
 not all start together. The shared Avatar leaves its loading behavior unchanged
 unless explicitly selected; primary profile images and editing previews retain
