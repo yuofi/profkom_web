@@ -111,6 +111,11 @@ export const seasonsApi = {
   correctionPreview: (eventId: string) => request<{ object_id: string; source_season_id: string; revision: number; counts: { subevents: number; tasks: number; reports: number; merits: number } }>("get", `/season-corrections/event/${idPath(eventId)}/preview`),
   assessments: (params?: object) => page<Contribution>("/assessments", params),
   merits: (params?: object) => page<Merit>("/merits", params),
+  /** Every recipient's KKR of a season's merit records (B8): the four merit kinds, every page each,
+   *  without the season's task contributions. GET /assessments refuses a reader without KKR rights. */
+  meritAssessments: async (seasonId: string, signal?: AbortSignal): Promise<Contribution[]> =>
+    (await Promise.all((["chair_merit", "head_merit", "block_volunteer", "subevent_volunteer"] as const)
+      .map(source_kind => page<Contribution>("/assessments", { season_id: seasonId, source_kind }, signal)))).flatMap(result => result.items),
   /** One request for the merit forms' blocks, events and subevents (optionally of one season). */
   meritContexts: (seasonId?: string) => request<MeritContexts>("get", "/merits/contexts", undefined, seasonId ? { season_id: seasonId } : undefined),
   merit: (id: string) => request<Merit>("get", `/merits/${idPath(id)}`),

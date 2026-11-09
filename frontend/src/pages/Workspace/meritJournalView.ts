@@ -34,7 +34,8 @@ export function teamLabel(team: Pick<MeritTeam, "kind" | "title">) {
   if (team.kind === "block") return team.title ? `Блок «${team.title}»` : "Блок";
   return team.title || (team.kind === "event" ? "Мероприятие" : "Подмероприятие");
 }
-function teamTitle(team: JournalTeam, names?: TeamNames) {
+/** The name of a block, event or subevent from the contexts; null for the chair or an unknown one. */
+export function teamTitle(team: JournalTeam, names?: TeamNames) {
   if (team.kind === "block") return names?.blocks.find(block => block.block_id === team.id)?.name ?? null;
   if (team.kind === "event") return names?.events.find(event => event.event_id === team.id)?.title ?? null;
   if (team.kind === "subevent") return names?.subs.find(sub => sub.subevent_id === team.id)?.title ?? null;

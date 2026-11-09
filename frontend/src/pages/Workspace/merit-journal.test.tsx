@@ -170,8 +170,9 @@ it("rereads a journal read before once a record is corrected through its form", 
   await mount();
   expect(text(journal())).toContain("Изменений пока нет.");
   await act(async () => modes()[0].click());await waitForPage(page!);
-  const card = [...page!.container.querySelectorAll("section")].find(section => section.querySelector("h2")?.textContent === "Сохранённая работа")!;
-  const form = card.querySelector("form")!;
+  // The record opens in its window from «Записи» (B8, variant Г); the correction form is there.
+  await act(async () => page!.container.querySelector<HTMLButtonElement>('section[aria-label="Записи"] td[data-cell="title"] button')!.click());await waitForPage(page!);
+  const form = page!.container.querySelector<HTMLFormElement>("dialog form")!;
   await change(field(form, "title"), "Сохранённая работа, исправлено");
   await change(field(form, "reason"), "Уточнили название");
   await submit(form);await waitForPage(page!);

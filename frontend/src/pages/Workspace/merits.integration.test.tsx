@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { act } from "react";
 import { afterEach, expect, it } from "vitest";
 import { Route, Routes } from "react-router-dom";
 import { liveLogin, liveParticipant } from "../../test/liveApi";
@@ -44,6 +45,15 @@ async function openMerits(email: string, seasonId: string) {
 }
 const card = (title: string) => Array.from(page!.container.querySelectorAll("section"))
   .find(section => section.querySelector(":scope > h2")?.textContent === title);
+/** Opens a record of «Записи» by its title (B8, variant Г): its correction form is in the record's window. */
+async function openRecord(title: string) {
+  const button = () => Array.from(page!.container.querySelectorAll<HTMLButtonElement>('section[aria-label="Записи"] td[data-cell="title"] button'))
+    .find(item => item.textContent === title);
+  await waitForPage(page!, () => !!button());
+  await act(async () => button()!.click());
+  await waitForPage(page!, () => !!page!.container.querySelector("dialog form"));
+  return page!.container.querySelector("dialog")!;
+}
 const select = (root: ParentNode, label: string) => Array.from(root.querySelectorAll("label"))
   .find(l => l.textContent?.startsWith(label))?.querySelector("select");
 
@@ -64,9 +74,10 @@ for (const state of ["open", "summarizing"] as const)
         recipients: [{user_id: w.volunteer.user_id, hours: 2, evaluation: 1, completed_at: hoursAgo(2)}]});
       await openMerits(email, w.season.season_id);
       const hours = `hours_${w.volunteer.user_id}`;
-      await waitForPage(page!, () => !!card(title)?.querySelector(`[name="${hours}"]`));
-      const form = card(title)!.querySelector(`[name="${hours}"]`)!.closest("form")!;
-      const scopePicker = card(title)!.querySelector('[data-entity-picker][data-field-name="scope"]');
+      const record = await openRecord(title);
+      await waitForPage(page!, () => !!record.querySelector(`[name="${hours}"]`));
+      const form = record.querySelector(`[name="${hours}"]`)!.closest("form")!;
+      const scopePicker = record.querySelector('[data-entity-picker][data-field-name="scope"]');
       if (scopeName === null) expect(scopePicker, source_kind).toBeNull();
       else {
         expect(field(scopePicker!, "scope").value, source_kind).toBe(scope.scope?.id ?? scope.event_id);

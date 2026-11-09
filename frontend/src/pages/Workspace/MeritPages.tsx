@@ -50,6 +50,7 @@ import type { TemplateTarget } from "../../utils/kkrTemplates";
 import { HistoryDisclosure } from "../../components/Workspace/HistoryPanel";
 import { metricValue, sourceNames } from "./seasonAnalyticsView";
 import { MeritJournal } from "./MeritJournal";
+import { MeritRecordList } from "./MeritRecordList";
 import u from "./SeasonWorkspace.module.css";
 const kinds: Record<MeritCreate["source_kind"], string> = {
   head_merit: "Особая заслуга на мероприятии",
@@ -616,6 +617,26 @@ export function MeritsPage() {
     queryFn: () => seasonsApi.merits({ season_id: id }),
     enabled: !!season,
   });
+  // Each recipient's KKR (B8, variant Г): only a reader of KKR asks, the server refuses the rest.
+  const kkrReader = can(session, "view_kkr");
+  const contributions = useQuery({
+    queryKey: ["assessments", "merits", id],
+    queryFn: ({ signal }) => seasonsApi.meritAssessments(id, signal),
+    enabled: !!season && kkrReader && !journal,
+  });
+  const showKkr = kkrReader && (!contributions.error || canRetainData(contributions.error));
+  // The window of a record: its description, history and, where allowed, the correction of its source fields.
+  // The form joins the window's own unsaved-changes scope, so closing the window asks about it.
+  const details = (m: Merit) => <>
+    <Markdown content={m.description} />
+    <HistoryDisclosure kind="merit" id={m.merit_id} />
+    {can(m, "edit_assessment_inputs") && (
+      <details className={s.details}>
+        <summary>Исправить исходные поля</summary>
+        <MeritEditor seasonId={id} existing={m} contexts={contexts} />
+      </details>
+    )}
+  </>;
   if (missing) return <SeasonMissing />;
   if (contexts.isLoading || seasons.isLoading) return <QueryState loading error={null}>{null}</QueryState>;
   if ((contexts.error && (!contexts.data || !canRetainData(contexts.error))) || (seasons.error && (!seasons.data || !canRetainData(seasons.error)))) return <QueryState loading={false} error={contexts.error || seasons.error}>{null}</QueryState>;
@@ -635,27 +656,8 @@ export function MeritsPage() {
         {journal ? <MeritJournal seasonId={id} merits={query.data?.items} names={contexts.data} people={people.options} peopleLoading={people.isLoading} />
           : <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!query.data}>
             {query.data?.items.length === 0 && <Empty>Записей пока нет.</Empty>}
-            {query.data?.items.map((m) => (
-              <Card key={m.merit_id} title={m.title}>
-                <p>
-                  {kinds[m.source_kind]} · {displayDate(m.assigned_at)}
-                </p>
-                <ul className={s.list} aria-label="Получатели">
-                  {m.recipients.map((r) => {
-                    const person = people.options.find((p) => p.value === String(r.user_id))?.user;
-                    return <li key={r.user_id} className={s.row}>{person ? <UserChip user={person} /> : <span>Участник #{r.user_id}</span>}<span className={s.muted}>{metricValue(r.hours)} ч · оценка {metricValue(r.evaluation)}{r.completed_at ? ` · выполнено ${displayDate(r.completed_at)}` : ""}</span></li>;
-                  })}
-                </ul>
-                <Markdown content={m.description} />
-                <HistoryDisclosure kind="merit" id={m.merit_id} />
-                {can(m, "edit_assessment_inputs") && (
-                  <details className={s.details}>
-                    <summary>Исправить исходные поля</summary>
-                    <MeritForm seasonId={id} existing={m} contexts={contexts} />
-                  </details>
-                )}
-              </Card>
-            ))}
+            {!!query.data?.items.length && <MeritRecordList items={query.data.items} contributions={showKkr ? contributions.data : undefined} showKkr={showKkr}
+              contacts={people.data} names={contexts.data} details={details} />}
           </QueryState>}
         {!journal && allowedKinds.length > 0 && (
           <Card title="Учесть выполненную работу">

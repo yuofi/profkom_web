@@ -14,8 +14,20 @@ let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let mock: ReturnType<typeof installMockTransport> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined;mock?.restore();mock = undefined;vi.restoreAllMocks(); });
 const label = (name: string) => field(page!.container, name).closest("div")!.querySelector("label")!.textContent;
+/** The lines of a record in «Записи» (B8, variant Г): one per recipient. */
+const recordLines = (title: string) => [...page!.container.querySelectorAll<HTMLElement>('section[aria-label="Записи"] tbody')]
+  .find(group => group.querySelector('td[data-cell="title"] button')?.textContent === title)?.querySelectorAll("tr") ?? [];
+const numbers = (line: Element) => [...line.querySelectorAll("td[data-num]")].map(cell => cell.textContent);
+/** Opens a record of «Записи» by its title; its window holds the correction form. */
+async function openRecord(title: string) {
+  const open = page!.container.querySelector("dialog");
+  if (open) await act(async () => open.querySelector<HTMLButtonElement>('[aria-label="Закрыть окно"]')!.click());
+  const button = [...page!.container.querySelectorAll<HTMLButtonElement>('section[aria-label="Записи"] td[data-cell="title"] button')].find(item => item.textContent === title)!;
+  await act(async () => button.click());await waitForPage(page!);
+  return page!.container.querySelector("dialog")!;
+}
 
-it("marks the result date required for a positive evaluation, names the evaluations and lists recipients on the card", async () => {
+it("marks the result date required for a positive evaluation, names the evaluations and lists each recipient on the record's line", async () => {
   mock = installMockTransport("chair", { delay: 0 });
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/merits" element={<MeritsPage />} /></Routes>, { path: "/seasons/season-1/merits?source_kind=chair_merit" });
   await waitForPage(page);await settle();
@@ -32,13 +44,14 @@ it("marks the result date required for a positive evaluation, names the evaluati
   expect(label(`completed_${userId}`)).not.toContain("*");
   for (const [name, value] of Object.entries({ title: "Помощь залу", body: "Работа", assigned: "2026-10-01T13:00", deadline: "2026-10-10T13:00", [`hours_${userId}`]: "3" })) await change(field(page.container, name), value);
   await submit(form);await waitForPage(page);
-  const card = [...page.container.querySelectorAll("section")].find(section => section.querySelector("h2")?.textContent === "Помощь залу")!;
-  const recipients = card.querySelector('ul[aria-label="Получатели"]')!;
-  expect(recipients.querySelectorAll("li")).toHaveLength(1);
-  expect(recipients.textContent).toContain("Анна");expect(recipients.textContent).toContain("3 ч · оценка 0");
+  const lines = recordLines("Помощь залу");
+  expect(lines).toHaveLength(1);
+  expect(lines[0].querySelector('td[data-cell="person"] a')?.getAttribute("aria-label")).toContain("Анна");
+  // Hours, evaluation and the recipient's KKR (none for an evaluation of 0).
+  expect(numbers(lines[0])).toEqual(["3", "0", "0,00"]);
 });
 
-it("prints a recipient's fractional hours and evaluation on the card with a decimal comma", async () => {
+it("prints a recipient's fractional hours and evaluation on the record's line with a decimal comma", async () => {
   mock = installMockTransport("chair", { delay: 0 });
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/merits" element={<MeritsPage />} /></Routes>, { path: "/seasons/season-1/merits?source_kind=chair_merit" });
   await waitForPage(page);await settle();
@@ -47,9 +60,8 @@ it("prints a recipient's fractional hours and evaluation on the card with a deci
   await pick(page.container, "users", userId);
   for (const [name, value] of Object.entries({ title: "Фотосъёмка", body: "Работа", assigned: "2026-10-01T13:00", deadline: "2026-10-10T13:00", [`hours_${userId}`]: "2.5", [`evaluation_${userId}`]: "1.5", [`completed_${userId}`]: "2026-10-09T13:00" })) await change(field(page.container, name), value);
   await submit(form);await waitForPage(page);
-  const card = [...page.container.querySelectorAll("section")].find(section => section.querySelector("h2")?.textContent === "Фотосъёмка")!;
-  const recipients = card.querySelector('ul[aria-label="Получатели"]')!;
-  expect(recipients.textContent).toContain("2,5 ч · оценка 1,5");expect(recipients.textContent).not.toContain("2.5");
+  const [line] = recordLines("Фотосъёмка");
+  expect(numbers(line).slice(0, 2)).toEqual(["2,5", "1,5"]);expect(line.textContent).not.toContain("2.5");
 });
 
 it("ticks the five criteria as checkboxes named as on every other screen", async () => {
@@ -184,8 +196,7 @@ async function savedMeritForm(hours: number[]) {
   await seasonsApi.createMerit({ season_id: "season-1", source_kind: "chair_merit", title: "Сохранённая работа", description: richText("Работа"), assigned_at: "2026-10-01T10:00:00.000Z", deadline_at: "2026-10-10T10:00:00.000Z", criteria: emptyCriteria(), recipients });
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/merits" element={<MeritsPage />} /></Routes>, { path: "/seasons/season-1/merits" });
   await waitForPage(page);await settle();
-  const card = [...page.container.querySelectorAll("section")].find(section => section.querySelector("h2")?.textContent === "Сохранённая работа")!;
-  const form = card.querySelector("form")!;
+  const form = (await openRecord("Сохранённая работа")).querySelector("form")!;
   const save = () => [...form.querySelectorAll("button")].find(button => button.textContent === "Сохранить исправление")!;
   return { first: String(first), second: String(second), form, save };
 }
@@ -290,8 +301,8 @@ it("an existing record opens with the box ticked only when its recipients share 
   await record("Разные даты", [2, 2], [DONE, "2026-10-06T09:00:00.000Z"]);
   page = await mountWorkspace(<Routes><Route path="/seasons/:id/merits" element={<MeritsPage />} /></Routes>, { path: "/seasons/season-1/merits" });
   await waitForPage(page);await settle();
-  const form = (title: string) => [...page!.container.querySelectorAll("section")].find(section => section.querySelector("h2")?.textContent === title)!.querySelector("form")!;
-  const same = form("Одинаково");
+  const form = async (title: string) => (await openRecord(title)).querySelector("form")!;
+  const same = await form("Одинаково");
   expect(box(same).checked).toBe(true);
   expect(["common_hours", "common_evaluation", "common_completed"].map(name => field(same, name).value)).toEqual(["2", "1", "2026-10-05T12:00"]);
   expect(same.querySelector(`[name="hours_${first}"]`)).toBeNull();
@@ -300,7 +311,7 @@ it("an existing record opens with the box ticked only when its recipients share 
   expect([...same.querySelectorAll("button")].find(button => button.textContent === "Сохранить исправление")!.disabled).toBe(true);
   // Values that differ stay in sight: the box opens unticked.
   for (const [title, hours, date] of [["Разные часы", ["2", "3"], "2026-10-05T12:00"], ["Разные даты", ["2", "2"], "2026-10-06T12:00"]] as const) {
-    const differ = form(title);
+    const differ = await form(title);
     expect(box(differ).checked).toBe(false);
     expect(differ.querySelector('[name="common_hours"]')).toBeNull();
     expect([field(differ, `hours_${first}`).value, field(differ, `hours_${second}`).value]).toEqual(hours);

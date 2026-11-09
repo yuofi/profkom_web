@@ -2539,37 +2539,35 @@ export function installMockTransport(
         });
       return [200, {}];
     }
-    if (path === "/assessments")
-      return kkrGlobal()
-        ? list(
-            state.tasks
-              .filter(
-                (t) =>
-                  !url.searchParams.get("season_id") ||
-                  t.season_id === url.searchParams.get("season_id"),
-              )
-              .flatMap((t) =>
-                t.assignments.map((a) => ({
-                  contribution_id: `contribution-${a.assignment_id}`,
-                  season_id: t.season_id,
-                  participant_id: `participant-${a.assignee.user_id}`,
-                  user: a.assignee,
-                  source_kind:
-                    t.scope.kind === "block" ? "block_task" : "subevent_task",
-                  source_id: t.scope.id,
-                  source_title: t.title,
-                  score: a.status === "accepted" ? 12.5 : null,
-                  calculation_version: "synthetic_fixture",
-                  assignment_inputs: ((inputs) => inputs && url.searchParams.get("include_task_ids") === "true" ? { ...inputs, task_id: readsTask(t) ? t.task_id : null } : inputs)(clone(
-                    state.assessments.find(
-                      (i) => i.assignment_id === a.assignment_id,
-                    ),
-                  )),
-                  capabilities: [],
-                })),
-              ),
-          )
-        : denied();
+    if (path === "/assessments") {
+      if (!kkrGlobal()) return denied();
+      const seasonId = url.searchParams.get("season_id"), sourceKind = url.searchParams.get("source_kind");
+      const taskItems = state.tasks.filter(t => !seasonId || t.season_id === seasonId).flatMap(t => t.assignments.map(a => ({
+        contribution_id: `contribution-${a.assignment_id}`,
+        season_id: t.season_id,
+        participant_id: `participant-${a.assignee.user_id}`,
+        user: a.assignee,
+        source_kind: t.scope.kind === "block" ? "block_task" : "subevent_task",
+        source_id: t.scope.id,
+        source_title: t.title,
+        score: a.status === "accepted" ? 12.5 : null,
+        calculation_version: "synthetic_fixture",
+        assignment_inputs: ((inputs) => inputs && url.searchParams.get("include_task_ids") === "true" ? { ...inputs, task_id: readsTask(t) ? t.task_id : null } : inputs)(clone(
+          state.assessments.find((i) => i.assignment_id === a.assignment_id),
+        )),
+        capabilities: [],
+      })));
+      // Each recipient of a merit record has a contribution of the record's kind (B8). Its KKR is a
+      // plain synthetic number, hours × evaluation, not the server's formula (docs/MOCKS.md).
+      const meritItems = state.merits.filter(merit => !seasonId || merit.season_id === seasonId).flatMap(merit => merit.recipients.map(r => {
+        const score = r.hours * r.evaluation;
+        const user = clone(state.people.find(person => person.user_id === r.user_id) ?? { user_id: r.user_id, display_name: `Участник ${r.user_id}`, avatar_url: null });
+        return { contribution_id: `contribution-${merit.merit_id}-${r.user_id}`, season_id: merit.season_id, participant_id: `participant-${r.user_id}`, user,
+          source_kind: merit.source_kind, source_id: merit.scope?.id ?? merit.event_id ?? `chair-merits:${merit.season_id}`, source_title: merit.title,
+          score, calculation_version: "synthetic_fixture", assignment_inputs: null, merit_id: merit.merit_id, capabilities: [] };
+      }));
+      return list([...taskItems, ...meritItems].filter(item => !sourceKind || item.source_kind === sourceKind));
+    }
     if (path === "/merits/contexts" && method === "get") {
       const seasonId = url.searchParams.get("season_id");
       const merit = (caps: string[]) => caps.filter(cap => cap === "create_head_merit" || cap === "create_volunteer_merit");
