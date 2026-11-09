@@ -18,6 +18,7 @@ import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -31,8 +32,9 @@ from profile_features import PreferenceValues, collect_delivery_event
 from profile_features_models import NotificationDeliveryEventORM as DeliveryORM, NotificationPreferenceORM
 from settings import Settings, settings
 from test_bot_api import BOT, HASH, at, body, sql
-from test_bot_link import confirm, issue
+from test_bot_link import application, confirm, issue, register
 from test_retention_release_criteria import archive
+from test_v13_registration import filled, vk_applicant
 from test_v13_tracker import work  # noqa: F401
 
 WORK, REPORT, PREFS = "/api/bot/v1/work", "/api/bot/v1/report", "/api/profile/me/notification-preferences"
@@ -240,6 +242,95 @@ def test_direct_callers_queue_with_the_users_row_they_did_not_pass(client, enabl
         with db._session() as s:
             collect_delivery_event(s, person.user_id, "block_request_approved", {"request_id": "r-1"}, "block-request:r-1:1")
     assert [(r["state"], r["category"], r["source_kind"]) for r in rows(channel="vk")] == [("pending", "applications", "request")]
+
+
+# ───────────────────────────── registration decisions ─────────────────────────────
+
+@pytest.mark.parametrize("via_vk", [False, True])
+def test_registration_approval_reaches_the_bot_once(client, enabled, superuser, mock_vk, via_vk):
+    """Exercise the actual decision route, not a hand-built notification with an event key."""
+    if via_vk:
+        headers, draft = vk_applicant(client, mock_vk, vk_id="190")
+        saved = client.patch("/api/registrations/me", headers=headers,
+                             json={"expected_revision": draft["revision"], "fields": filled(draft, funding="budget")})
+        assert saved.status_code == 200, saved.text
+        applicant = SimpleNamespace(user_id=draft["user_id"], headers=headers)
+    else:
+        applicant = register(client, "applicant@example.com")
+    assert confirm(client, issue(client, applicant)["code"], 190).status_code == 200
+    before = application(client, applicant)
+    route = f"/api/registrations/{applicant.user_id}/approve"
+    approved = client.post(route, headers=superuser.headers, json={"expected_revision": before["revision"]})
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "approved"
+
+    [delivery] = poll(client)
+    assert (delivery["peer_id"], delivery["text"]) == (190, f"Ваша регистрация одобрена\n{SITE}/")
+    # A lost poll or report may be retried with the same VK deduplication ID.
+    assert poll(client) == [delivery]
+    for revision in (before["revision"], approved.json()["revision"]):
+        assert client.post(route, headers=superuser.headers, json={"expected_revision": revision}).status_code == 409
+    with db._session() as s:
+        [notice] = s.query(NotificationORM).filter_by(user_id=applicant.user_id, kind="registration_approve").all()
+        [queued] = s.query(DeliveryORM).filter_by(user_id=applicant.user_id, channel="vk").all()
+        assert notice.event_key == queued.event_key == f"registration:{applicant.user_id}:decision:{approved.json()['revision']}"
+    sent = result(delivery["delivery_id"], "sent", vk_message_id=19)
+    report(client, [sent])
+    report(client, [sent])
+    assert vk_row(delivery["delivery_id"])["state"] == "sent"
+    assert poll(client) == []
+
+
+def test_registration_approval_respects_disabled_vk_preferences(client, enabled, superuser):
+    applicant = register(client, "applicant@example.com")
+    assert confirm(client, issue(client, applicant)["code"], 191).status_code == 200
+    prefer(applicant.user_id, tracker=("vk",))  # Applications are off; tracker stays on.
+    current = application(client, applicant)
+    approved = client.post(f"/api/registrations/{applicant.user_id}/approve", headers=superuser.headers,
+                           json={"expected_revision": current["revision"]})
+    assert approved.status_code == 200, approved.text
+    assert rows(channel="vk", user_id=applicant.user_id) == []
+    assert poll(client) == []
+    with db._session() as s:
+        assert s.query(NotificationORM).filter_by(user_id=applicant.user_id, kind="registration_approve").count() == 1
+
+
+@pytest.mark.parametrize("command,title", [
+    ("reject", "Ваша регистрация отклонена"),
+    ("reset-attempts", "Лимит отправок заявки на регистрацию сброшен"),
+])
+def test_other_registration_decisions_keep_their_bot_notice(client, enabled, superuser, command, title):
+    applicant = register(client, "applicant@example.com")
+    assert confirm(client, issue(client, applicant)["code"], 192).status_code == 200
+    current = application(client, applicant)
+    decided = client.post(f"/api/registrations/{applicant.user_id}/{command}", headers=superuser.headers,
+                          json={"expected_revision": current["revision"], "reason": "Уточнить данные"})
+    assert decided.status_code == 200, decided.text
+    [delivery] = poll(client)
+    assert (delivery["peer_id"], delivery["text"]) == (192, f"{title}\n{SITE}/")
+
+
+def test_registration_approval_and_delivery_roll_back_together(client, enabled, superuser, monkeypatch):
+    import profile_features
+
+    applicant = register(client, "applicant@example.com")
+    assert confirm(client, issue(client, applicant)["code"], 193).status_code == 200
+    before = application(client, applicant)
+    collect = profile_features.collect_delivery_event
+
+    def fail_after_queue(*args, **kwargs):
+        collect(*args, **kwargs)
+        raise RuntimeError("Synthetic queue failure")
+
+    monkeypatch.setattr(profile_features, "collect_delivery_event", fail_after_queue)
+    with pytest.raises(RuntimeError, match="Synthetic queue failure"):
+        client.post(f"/api/registrations/{applicant.user_id}/approve", headers=superuser.headers,
+                    json={"expected_revision": before["revision"]})
+    assert application(client, applicant) == before
+    assert db.get_user(applicant.user_id).account_state == "pending"
+    assert rows(user_id=applicant.user_id) == []
+    with db._session() as s:
+        assert s.query(NotificationORM).filter_by(user_id=applicant.user_id, kind="registration_approve").count() == 0
 
 
 # ───────────────────────────── VK on by default ─────────────────────────────

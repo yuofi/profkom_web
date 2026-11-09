@@ -16,4 +16,10 @@ describe("explicit cosmetic logo presets", () => {
     expect(blockLogo("ДК")).toBeUndefined();
     expect(eventLogo("ДК другого факультета")).toBeUndefined();
   });
+  it("uses the existing presets for the production spellings", () => {
+    expect(blockLogo("Instargam")).toBe(blockLogo("Instagram"));
+    expect(blockLogo("Instargam")).toBeTruthy();
+    expect(blockLogo("Zachёt")).toBe(blockLogo("Зачёт"));
+    expect(blockLogo("Zachёt")).toBeTruthy();
+  });
 });

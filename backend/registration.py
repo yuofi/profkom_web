@@ -375,19 +375,21 @@ def register_routes(router):
                 old,
                 dict(status=r.status, attempts_used=r.attempts_used),
             )
+            event_key = f"registration:{user_id}:decision:{r.revision}"
             s.add(
                 NotificationORM(
                     notification_id=str(uuid.uuid4()),
                     user_id=user_id,
                     kind="registration_" + command,
                     payload_json="{}",
+                    event_key=event_key,
                     is_read=False,
                     created_at=now(),
                 )
             )
             from profile_features import collect_delivery_event
             collect_delivery_event(s, user_id, "registration_" + command, {"registration_user_id": user_id},
-                                   f"registration:{user_id}:decision:{r.revision}")
+                                   event_key)
             s.commit()
             return dto(r, cur.user_id, link_of(s, user_id))
 
