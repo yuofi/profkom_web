@@ -12,6 +12,8 @@ import { EntityPicker, type EntityKind, type EntityOption } from "./EntityPicker
 import { advanceOwn, recordOwnChange, useOwnRevisions } from "./ownRevisions";
 import { useUnsavedChanges } from "./unsavedChangesHooks";
 import { metricValue } from "../../pages/Workspace/seasonAnalyticsView";
+import { isCriterion } from "../../utils/kkrCriteria";
+import { CriteriaGroup } from "./CriteriaGroup";
 // The editor stays in its own chunk: forms without a markdown field do not load it.
 const MarkdownEditor = lazy(() => import("./MarkdownEditor").then((module) => ({ default: module.MarkdownEditor })));
 export interface Field {
@@ -51,7 +53,10 @@ export interface Field {
   onSelectionChange?: (values: string[]) => void;
   /** A multiple choice of people asks before removing saved ones; marks need not. */
   confirmRemoval?: boolean;
-  /** Short fields of one group share a row (dates, hours and evaluation, yes/no criteria); a new group starts a new row. */
+  /**
+   * Short fields of one group share a row (dates, hours and evaluation); a new group starts a new row.
+   * The checkboxes of the group "criteria", named by the KKR criteria's keys, are one set of tiles (CriteriaGroup).
+   */
   compact?: string;
   /** A plain text field rewrites what is typed, e.g. into capitals; the value stays editable as usual. */
   normalize?: (value: string) => string;
@@ -76,6 +81,9 @@ const visible = (field: Field, values: Values) =>
         field.whenSelected.value,
       ))) &&
   (!field.visibleWhen || field.visibleWhen(values));
+
+/** A KKR criterion of the form: drawn with the others of its run as one CriteriaGroup. */
+const criterion = (field?: Field) => field?.type === "checkbox" && field.compact === "criteria" && isCriterion(field.name);
 
 const savedValues = (fields: Field[]): Values =>
   Object.fromEntries(fields.map((f) => [f.name, f.value ?? (f.type === "multi" ? [] : f.type === "checkbox" ? "false" : "")]));
@@ -410,6 +418,15 @@ export function ActionForm({
         {fields
           .filter((field) => visible(field, form.values))
           .map((field, index, shown) => {
+            if (criterion(field)) {
+              if (criterion(shown[index - 1])) return null;
+              const end = shown.findIndex((next, at) => at > index && !criterion(next));
+              const run = shown.slice(index, end < 0 ? undefined : end);
+              return <CriteriaGroup key={field.name} disabled={form.isSubmitting} onBlur={form.handleBlur}
+                keys={run.map((item) => item.name).filter(isCriterion)}
+                checked={(key) => String(form.values[key] ?? initialValues[key]) === "true"}
+                onChange={(key, on) => setValue(run.find((item) => item.name === key)!, on ? "true" : "false")} />;
+            }
             const compact = field.compact ? `${s.compactField} ${shown[index - 1]?.compact !== field.compact ? s.compactStart : ""}` : "";
             const id = `${formId}-${field.name}`;
             const error = form.touched[field.name] && form.errors[field.name];

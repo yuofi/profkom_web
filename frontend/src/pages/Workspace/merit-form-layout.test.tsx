@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { Route, Routes } from "react-router-dom";
+import { getByRole } from "@testing-library/dom";
 import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
@@ -58,7 +59,8 @@ it("ticks the five criteria as checkboxes named as on every other screen", async
   await waitForPage(page);await settle();
   const form = page.container.querySelector("form")!;
   const boxes = criteriaKeys.map(key => form.querySelector<HTMLInputElement>(`input[type="checkbox"][name="${key}"]`)!);
-  expect(boxes.map(box => box.closest("label")?.textContent)).toEqual(criteriaKeys.map(key => criteriaLabels[key]));
+  // One set of tiles: each box named by its criterion alone, the multiplier beside it is its description.
+  expect(criteriaKeys.map(key => getByRole(form, "checkbox", { name: criteriaLabels[key] }))).toEqual(boxes);
   expect(form.querySelector('select[name="creative"]')).toBeNull();
   const userId = String(mock.state.people[0].user_id);
   await pick(page.container, "users", userId);

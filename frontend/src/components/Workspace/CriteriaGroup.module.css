@@ -1,0 +1,98 @@
+/* The KKR criteria as equal tiles (owner A1, variant Б), the same on every screen. The boxes are the
+   site's own checkboxes; a tile's frame is that of the site's fields and its choice the section's colour. */
+
+/* A fieldset without the browser's frame. The KKR window frames the fieldsets of its form
+   (AssessmentPanel `.unified fieldset`), so the reset is doubled to hold there too. */
+.group.group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--on-surface);
+}
+.legend {
+  padding: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.frame {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+/* Five in one row while each gets about 150px; three in a row (3 + 2, the same width) below that.
+   The rows are of one height. A tile needs about 145px: «администрацией» and «Выполняется ×1,1»
+   are each 113px wide in the tile's font. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 10px;
+}
+@container (max-width: 789px) {
+  .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* The whole tile is the choice: the box in its corner, the name under it. */
+.tile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 10px;
+  align-content: start;
+  justify-items: start;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 13px 14px 15px;
+  border: 1px solid color-mix(in srgb, var(--outline-variant) 45%, transparent);
+  border-radius: 12px;
+  background: var(--surface-container-low);
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.tile:not(:has(input:disabled)):hover { border-color: var(--outline-variant); }
+.tile:has(input:disabled) { cursor: default; }
+.tile:has(input:checked) {
+  border-color: var(--tone, var(--primary));
+  background: color-mix(in srgb, var(--tone, var(--primary)) 10%, var(--surface-container-low));
+}
+/* The keyboard's focus rings the tile, as on the task kind cards. */
+.tile:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
+.tiles .tile > input[type="checkbox"]:focus-visible { outline: none; }
+
+/* A long name wraps between its words. A word is cut only if it could not fit a tile at all,
+   which no screen from 360px on reaches. */
+.text {
+  display: block;
+  justify-self: stretch;
+  min-width: 0;
+  overflow-wrap: break-word;
+  hyphens: manual;
+}
+/* The multiplier at the right of the name's first line. */
+.factor {
+  float: right;
+  margin-left: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  color: color-mix(in srgb, var(--on-surface) 55%, transparent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tile:has(input:checked) .factor { color: var(--tone, var(--primary)); }
+
+/* Two in a row where three no longer fit (a phone), the fifth alone in the last row; a row is as
+   tall as its longer tile. */
+@container (max-width: 459px) {
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: auto; gap: 8px; }
+  .tile { padding: 12px 10px 13px; }
+}
+/* Narrower than 280px even two tiles would cut those words (the template editor in its card on a
+   360px phone): one tile a row. */
+@container (max-width: 279px) {
+  .tiles { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tile { transition: none; }
+}

@@ -75,6 +75,15 @@ def test_the_frontend_names_the_criteria_the_same_in_the_same_order():
     assert re.findall(r'^\s*(\w+): "([^"]+)",', labels, re.M) == list(KKR_CRITERIA.items())
 
 
+def test_the_frontend_shows_the_multipliers_of_the_table():
+    """The criteria tiles print each multiplier beside its name (owner A1 Б): the same numbers."""
+    source = KKR_CRITERIA_TS.read_text(encoding="utf-8")
+    factors = source[source.index("criteriaFactors"):]
+    factors = factors[:factors.index("};")]
+    assert [(key, float(value)) for key, value in re.findall(r'^\s*(\w+): ([\d.]+),', factors, re.M)] == \
+        [(key, factor) for key, _, factor in KKR_CRITERIA_TABLE]
+
+
 @pytest.mark.parametrize("chosen", [dict(zip(KEYS, bits)) for bits in product([False, True], repeat=5)])
 @pytest.mark.parametrize("deadline,evaluation,completed", [
     (DEADLINE, 1, None), (DEADLINE, 1.5, "2026-01-05T00:00:00Z"), (DEADLINE, -1, None),

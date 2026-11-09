@@ -115,7 +115,7 @@ it("УВ-5: an area lead fills shared criteria after closure while only date-aut
   mock=installMockTransport("leader",{delay:0});const task=mock.state.tasks[0];task.status="closed";task.closed_at="2026-10-30T00:00:00Z";
   page=await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TaskPage/>}/></Routes>,{role:"leader",path:`/tasks/${task.task_id}?assignment_id=${task.assignments[0].assignment_id}`});await waitForPage(page,()=>!!page!.container.querySelector('table'));
   expect(page.container.querySelector('[name="deadline"]')).toBeNull();expect(page.container.querySelector('[name="assigned"]')).toBeNull();
-  const creative=[...page.container.querySelectorAll('fieldset label')].find(label=>label.textContent==='Задача требует творческого подхода')!.querySelector<HTMLInputElement>('input')!;await act(async()=>creative.click());
+  const creative=page.container.querySelector<HTMLInputElement>('input[type="checkbox"][name="creative"]')!;await act(async()=>creative.click());
   for(const input of page.container.querySelectorAll<HTMLSelectElement>('select[aria-label^="Оценка:"]'))await change(input,'1');
   await submit(page.container.querySelector('form:has(table)')!);await waitForPage(page);
   const sent=JSON.parse(mock.adapter.history.put.at(-1)!.data);expect(sent.criteria.creative).toBe(true);expect(sent).not.toHaveProperty('deadline_at');expect(sent).not.toHaveProperty('assigned_at');

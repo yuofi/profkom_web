@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from "react";
+import { getByRole } from "@testing-library/dom";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it } from "vitest";
 import { installMockTransport } from "../../mocks/transport";
@@ -119,7 +120,7 @@ it("corrects a closed task's criteria with the same checkboxes and names as the 
   await openCorrections("task_inputs");
   const container = page!.container;
   const boxes = criteriaKeys.map(key => container.querySelector<HTMLInputElement>(`input[type="checkbox"][name="${key}"]`)!);
-  expect(boxes.map(box => box.closest("label")?.textContent)).toEqual(criteriaKeys.map(key => criteriaLabels[key]));
+  expect(criteriaKeys.map(key => getByRole(container, "checkbox", { name: criteriaLabels[key] }))).toEqual(boxes);
   expect(container.querySelector("select[name=unique]")).toBeNull();
   const saved = [...container.querySelectorAll("details dl > div")].find(row => row.querySelector("dt")?.textContent === criteriaLabels.creative);
   expect(saved?.querySelector("dd")?.textContent).toBe("Нет");
