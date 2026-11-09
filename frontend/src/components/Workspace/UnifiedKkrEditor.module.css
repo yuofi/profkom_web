@@ -1,0 +1,12 @@
+/* The KKR window (owner A2): the form, the dates, then a bar with «Закрыть» and «Сохранить ККР» that stays at
+   the window's bottom while the fields scroll, so a phone sees it as soon as the window opens. The bar reaches
+   the window's edges through its padding (TrackerTaskDetail.module.css .dialog: 24px, 17px on a phone). */
+.batch { display: grid; gap: 1.2rem; min-width: 0; }
+.footer { position: sticky; bottom: -24px; z-index: 2; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; margin: 0 -24px -24px; padding: 16px 24px 24px; background: var(--surface-container-low); border-top: 1px solid var(--surface-variant); }
+/* What a save answered: scrolled to above the bar, not under it. */
+.messages { display: grid; gap: 12px; min-width: 0; scroll-margin-bottom: 96px; }
+.messages > p { margin: 0; }
+@media (max-width: 520px) {
+  .footer { bottom: -17px; margin: 0 -17px -17px; padding: 12px 17px 17px; }
+  .footer > button { flex: 1 1 auto; }
+}

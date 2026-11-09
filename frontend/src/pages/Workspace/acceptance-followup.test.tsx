@@ -13,6 +13,7 @@ import { emptyCriteria, richText } from "../../utils/api/contract";
 import { UserContext } from "../../utils/me";
 import {
   change,
+  evaluate,
   field,
   mountWorkspace,
   settle,
@@ -66,8 +67,8 @@ it("keeps public submission/status separate from explicit private acceptance and
   await publicStatus("Закрыта");saved = await tasksApi.get(task.task_id);expect(saved.status).toBe("closed");expect(saved.submissions?.map(item => item.text.body)).toEqual(["Первая сдача", "Исправленная сдача"]);
   const publicOnly = await Promise.all(saved.assignments.map(item => tasksApi.assessment(item.assignment_id)));
   expect(publicOnly.map(item => [item.hours, item.evaluation, item.effective_completed_at, item.workflow_status, item.workflow_revision])).toEqual(before.map(item => [item.hours, item.evaluation, item.effective_completed_at, item.workflow_status, item.workflow_revision]));
-  for (const field of page.container.querySelectorAll<HTMLSelectElement>('select[aria-label^="Оценка:"]')) await change(field,"1");
-  const accounting = page.container.querySelector('form:has(select[aria-label^="Оценка:"])')!;
+  await evaluate(page.container, "1");
+  const accounting = page.container.querySelector('form:has([role="radiogroup"][aria-label^="Оценка:"])')!;
   await submit(accounting as HTMLFormElement);await waitForPage(page);
   const inputs = await Promise.all(saved.assignments.map(item => tasksApi.assessment(item.assignment_id)));
   expect(inputs.map(item => item.hours)).toEqual([2, 3]);expect(inputs.map(item => item.evaluation)).toEqual([1, 1]);

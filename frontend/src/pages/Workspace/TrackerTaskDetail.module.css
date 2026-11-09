@@ -133,6 +133,9 @@
 .history time { font-size: 12px; opacity: .5; }
 .accounting { border-top: 1px solid var(--surface-variant); padding-top: 20px; }
 .accountingHint { font-size: 12px; line-height: 1.6; opacity: .65; margin: 9px 0 0; }
+/* The section's line of what is entered and its main button across the section (owner A2). */
+.accountingSummary { margin: 10px 0 0; font-size: 14px; line-height: 1.5; color: color-mix(in srgb, var(--on-surface) 70%, transparent); }
+.accountingOpen { width: 100%; margin-top: 14px; }
 .accountingBody { display: grid; gap: 16px; padding-top: 20px; }
 .accountingPerson { padding: 16px; border: 1px solid var(--surface-variant); border-radius: 12px; }
 .accountingPerson h3 { margin-top: 0; font-size: 15px; }

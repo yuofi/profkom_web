@@ -3,7 +3,7 @@ import { act } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { liveLogin, liveParticipant } from "../../test/liveApi";
-import { change, field, mountWorkspace, pick, submit, waitForPage } from "../../test/workspace";
+import { change, evaluate, field, mountWorkspace, pick, submit, waitForPage } from "../../test/workspace";
 import { eventsApi } from "../../utils/api/events.api";
 import { membershipApi } from "../../utils/api/membership.api";
 import { seasonsApi } from "../../utils/api/seasons.api";
@@ -50,8 +50,8 @@ it("an event head selects a child team's organizer, records private KKR and crea
   await page.cleanup();page = undefined;await liveLogin(organizer.email);task = await tasksApi.get(task.task_id);await submitTaskResult(task.task_id, { expected_revision: task.revision, text: richText("Выполненная работа организатора") });
   session = await liveLogin(head.email);task = await tasksApi.get(task.task_id);task=await tasksApi.changeStatus(task.task_id,{expected_revision:task.revision,status:"closed"});const publicStatus = task.status;
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);
-  await click(button(page.container,"Оценить работу"));const form=page.container.querySelector<HTMLFormElement>('dialog form:has(table)')!;
-  await change(form.querySelector<HTMLInputElement>('input[aria-label^="Часы:"]')!,"2");await change(form.querySelector<HTMLSelectElement>('select[aria-label^="Оценка:"]')!,"1");await submit(form);await waitForPage(page,()=>!!page!.container.textContent?.includes("ККР сохранён"));
+  await click(button(page.container,"Оценить работу"));const form=page.container.querySelector<HTMLFormElement>('dialog form:has([role="radiogroup"])')!;
+  await change(form.querySelector<HTMLInputElement>('input[aria-label^="Часы:"]')!,"2");await evaluate(form,"1");await submit(form);await waitForPage(page,()=>!!page!.container.textContent?.includes("ККР сохранён"));
   const saved = await api(() => tasksApi.assessment(task.assignments[0].assignment_id));expect(saved.hours).toBe(2);expect(saved.workflow_status).toBe("accepted");expect((await api(() => tasksApi.get(task.task_id))).status).toBe(publicStatus);
   await page.cleanup();page = undefined;
   page = await mountWorkspace(<MeritForm seasonId={season.season_id} initialSource="head_merit" initialScopeId={event.event_id} />, { session });await waitForPage(page);
@@ -82,8 +82,8 @@ it("assigns a scoped block HR from the page and exposes own-block accounting wit
     expect([...page.container.querySelectorAll("a")].some(link => link.textContent === "Учесть волонтёрскую работу")).toBe(false);expect(button(page.container, "Подать заявку в блок")).toBeDefined();expect(button(page.container, "Изменить HR блока")).toBeUndefined();
     await page.cleanup();page = undefined;
     page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}`, session });await waitForPage(page);
-    await click(button(page.container,"Оценить работу"));const form=page.container.querySelector<HTMLFormElement>('dialog form:has(table)')!;
-    await change(form.querySelector<HTMLInputElement>('input[aria-label^="Часы:"]')!,"3");await change(form.querySelector<HTMLSelectElement>('select[aria-label^="Оценка:"]')!,"0");await submit(form);await waitForPage(page,()=>!!page!.container.textContent?.includes("ККР сохранён"));
+    await click(button(page.container,"Оценить работу"));const form=page.container.querySelector<HTMLFormElement>('dialog form:has([role="radiogroup"])')!;
+    await change(form.querySelector<HTMLInputElement>('input[aria-label^="Часы:"]')!,"3");await evaluate(form,"0");await submit(form);await waitForPage(page,()=>!!page!.container.textContent?.includes("ККР сохранён"));
     const inputs = await api(() => tasksApi.assessment(task.assignments[0].assignment_id));expect(inputs.hours).toBe(3);expect(inputs.workflow_status).toBe("not_completed");expect((await api(() => tasksApi.get(task.task_id))).status).toBe(task.status);
     await expect(api(() => seasonsApi.analytics(season.season_id))).rejects.toMatchObject({ status: 403 });
   } finally {

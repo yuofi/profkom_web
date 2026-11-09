@@ -16,6 +16,7 @@ import { TaskDeadlineParameter } from "./TaskDeadlineParameter";
 import { ApiError } from "../../utils/api/request";
 import { historyApi } from "../../utils/api/history.api";
 import { taskCollaborationApi } from "../../utils/api/taskCollaboration.api";
+import { kkrApi, type AccountingBatch } from "../../utils/api/kkr.api";
 import { QueryClient } from "@tanstack/react-query";
 
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
@@ -25,11 +26,18 @@ async function click(text: string, root: ParentNode = page!.container) {
   const button = [...root.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.trim() === text);
   expect(button, `Missing button ${text}`).toBeDefined();await act(async () => button!.click());await settle();
 }
+const accountingBatch = (task: Task, rows: Partial<AccountingBatch["assignments"][number]>[] = []): AccountingBatch => ({
+  task_id: task.task_id, public_revision: task.revision, revision: 1, criteria: emptyCriteria(), closed_at: "2026-10-30T02:00:00Z", season_closed: false,
+  assigned_at: "2026-10-20T09:00:00Z", deadline_at: null, capabilities: [],
+  assignments: task.assignments.map((assignment, index) => ({ assignment_id: assignment.assignment_id, assignee: assignment.assignee, hours: null, evaluation: null, excluded: false, effective_completed_at: null, revision: 1, is_current: true, ...rows[index] })),
+});
 async function mountTask(task: Task, comments: Comment[] = [], search = "") {
   vi.spyOn(seasonsApi, "list").mockResolvedValue({ items: createFixtures("chair").seasons, next_cursor: null });
   vi.spyOn(tasksApi, "get").mockResolvedValue(task);
   vi.spyOn(tasksApi, "comments").mockResolvedValue({ items: comments, next_cursor: null });
   vi.spyOn(historyApi, "list").mockResolvedValue({ items: [], next_cursor: null });
+  // The accounting section of a closed task reads the KKR batch; a test may give its own first.
+  if (!vi.isMockFunction(kkrApi.batch)) vi.spyOn(kkrApi, "batch").mockResolvedValue(accountingBatch(task));
   page = await mountWorkspace(<Routes><Route path="/tasks/:id" element={<TrackerTaskPage />} /></Routes>, { path: `/tasks/${task.task_id}${search}` });
   await waitForPage(page);return page;
 }
@@ -153,6 +161,22 @@ it("removes an open description editor when editing rights are revoked", async (
   vi.mocked(tasksApi.get).mockResolvedValue({ ...task, capabilities: ["read_task"] });
   await act(async () => { await page!.client.invalidateQueries({ queryKey: ["tasks", task.task_id], exact: true }); });await waitForPage(page!);
   expect(page!.container.querySelector("dialog")).toBeNull();expect(page!.container.querySelector('input[name="title"]')).toBeNull();
+});
+
+it("the accounting section sums up the KKR above a wide «Оценить работу» that opens the window (owner A2)", async () => {
+  const task = makeTask({ status: "closed", capabilities: ["read_task", "view_assessment_inputs"] });
+  vi.spyOn(kkrApi, "batch").mockResolvedValue({ ...accountingBatch(task, [{ hours: 2.5, evaluation: 1.5 }, { hours: 1, excluded: true }]), criteria: { ...emptyCriteria(), unique: true, creative: true } });
+  await mountTask(task);
+  const section = page!.container.querySelector('section[aria-label="Учёт работы и ККР"]')!;
+  expect(section.querySelector("h2")?.textContent).toBe("Учёт работы и ККР");
+  expect(section.querySelector("p")?.textContent).toBe("Оценено 1 из 1 · 1 исключён · всего 2,5 ч · признаков задачи: 2 из 5");
+  const open = section.querySelector<HTMLButtonElement>("button")!;expect(open.textContent).toBe("Оценить работу");expect(open.parentElement).toBe(section);
+  expect(page!.container.querySelector("dialog")).toBeNull();
+  await click("Оценить работу", section);await waitForPage(page!, () => !!page!.container.querySelector('dialog [role="radiogroup"]'));
+  const dialog = page!.container.querySelector("dialog")!;
+  expect(dialog.querySelector('[role="radiogroup"][aria-label="Оценка: Анна Смирнова"] input[value="1.5"]')).toHaveProperty("checked", true);
+  expect([...dialog.querySelectorAll("button")].map(button => button.textContent).filter(Boolean).slice(-1)).toEqual(["Закрыть"]);
+  await click("Закрыть", dialog);expect(page!.container.querySelector("dialog")).toBeNull();
 });
 
 it.each(["open", "closed"] as const)("accounting opens only after closure (%s)", async status => {
