@@ -90,7 +90,7 @@ it("the KKR window draws the shared tiles and saves the same five criteria keys"
   const task = mock.state.tasks[0];task.status = "closed";task.closed_at = "2026-10-30T02:00:00Z";
   const save = vi.spyOn(kkrApi, "saveBatch").mockImplementation(async (id, data) => ({ ...(await kkrApi.batch(id)), criteria: data.criteria }));
   const mounted = await mountWorkspace(<UnifiedKkrEditor task={task} />);page = mounted;
-  await waitForPage(mounted, () => !!mounted.container.querySelector("table"));
+  await waitForPage(mounted, () => !!mounted.container.querySelector('[role="radiogroup"]'));
   const { boxes, tile } = tiles(mounted.container, "Общие признаки задачи");
   const before = boxes.map(box => box.checked);
   await click(tile("external_communication"));
