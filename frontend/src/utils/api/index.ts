@@ -95,7 +95,9 @@ export function onAccessChange(listener: AccessListener) {
 export function beginAuthTransition() {
     authGeneration++;
     refreshPromise = null;
+    return authGeneration;
 }
+export const authSessionGeneration = () => authGeneration;
 
 /** Tabs of one browser share the cookies, so they refresh one at a time (A-ROL-14). */
 async function fetchRefresh(): Promise<void> {

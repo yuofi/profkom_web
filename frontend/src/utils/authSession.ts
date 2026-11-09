@@ -3,7 +3,7 @@ import Cookies from "js-cookie";
 import { authApi } from "./api/auth.api";
 import { sessionApi } from "./api/session.api";
 import { normalizeApiError } from "./api/request";
-import { beginAuthTransition, rememberSignedIn } from "./api";
+import { authSessionGeneration, beginAuthTransition, rememberSignedIn } from "./api";
 
 const notSession = (q: { queryKey: readonly unknown[] }) => q.queryKey[0] !== "session";
 
@@ -27,11 +27,16 @@ export async function completeAuthentication(client: QueryClient, accessToken: s
 /** The server ended this session (archive, logout everywhere, an expired refresh): nothing
  *  private stays cached (A-FE-4). Called from the refused session read, which keeps running:
  *  its error routes to the login, and the emptied session stops the profile read. */
-export async function handleRevokedSession(client: QueryClient) {
-  beginAuthTransition();
+export async function handleRevokedSession(client: QueryClient, expectedGeneration = authSessionGeneration()) {
+  if (expectedGeneration !== authSessionGeneration()) return;
+  // A focus/poll on /auth still answers 401 while VK is being verified. There is
+  // no session to revoke then: advancing the generation would cancel that login.
+  const generation = Cookies.get("access_token") || client.getQueryData(["session"])
+    ? beginAuthTransition() : expectedGeneration;
   Cookies.remove("access_token");
   rememberSignedIn(false);
   await client.cancelQueries({ predicate: notSession });
+  if (generation !== authSessionGeneration()) return;
   client.setQueryData(["session"], null);
   client.removeQueries({ predicate: notSession });
   client.getMutationCache().clear();

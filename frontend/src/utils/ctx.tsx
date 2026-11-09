@@ -8,7 +8,7 @@ import type { Session } from "./api/contract";
 import { forgetOwnChanges } from "../components/Workspace/ownRevisions";
 import { handleRevokedSession } from "./authSession";
 import { normalizeApiError } from "./api/request";
-import { onAccessChange, rememberSignedIn } from "./api";
+import { authSessionGeneration, onAccessChange, rememberSignedIn } from "./api";
 import { retryTransient } from "./api/invalidation";
 
 const notSession = (q: { queryKey: readonly unknown[] }) => q.queryKey[0] !== "session";
@@ -18,15 +18,16 @@ export const UserProvider = ({ children }: { children: React.ReactNode }) => {
   const sessionQuery = useQuery({
     queryKey: ["session"],
     queryFn: async () => {
+      const generation = authSessionGeneration();
       const previous = client.getQueryData<Session>(["session"]);
       let next: Session;
       try {
         next = await sessionApi.get();
       } catch (error) {
         // 401 after the refresh was tried: the session is over, and its data with it.
-        if (normalizeApiError(error).status === 401) {
+        if (normalizeApiError(error).status === 401 && generation === authSessionGeneration()) {
           forgetOwnChanges(client);
-          await handleRevokedSession(client);
+          await handleRevokedSession(client, generation);
         }
         throw error;
       }

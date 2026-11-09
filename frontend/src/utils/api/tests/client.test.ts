@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import MockAdapter from 'axios-mock-adapter';
 import axios from 'axios';
 import Cookies from 'js-cookie';
-import { api } from '../index';
+import { api, authSessionGeneration } from '../index';
 import { QueryClient } from '@tanstack/react-query';
-import { completeAuthentication, endSession } from '../../authSession';
+import { completeAuthentication, endSession, handleRevokedSession } from '../../authSession';
 import { createFixtures } from '../../../mocks/fixtures';
 import { normalizeApiError } from '../request';
 import { ERROR_TEXTS, errorDetail, userMessage } from '../messages';
@@ -17,6 +17,34 @@ let refresh: MockAdapter;
 beforeEach(() => { client = new MockAdapter(api); refresh = new MockAdapter(axios); Cookies.remove('access_token'); });
 afterEach(() => { client.restore(); refresh.restore(); });
 describe('Access token refresh', () => {
+  it('a stale session refusal cannot revoke a completed new login', async () => {
+    const queries = new QueryClient();
+    const oldGeneration = authSessionGeneration();
+    client.onGet('/session').reply(200, createFixtures('organizer').session);
+    await completeAuthentication(queries, 'new-account-token');
+    queries.setQueryData(['private'], 'new-account-data');
+    await handleRevokedSession(queries, oldGeneration);
+    expect(Cookies.get('access_token')).toBe('new-account-token');
+    expect(queries.getQueryData(['private'])).toBe('new-account-data');
+    expect(queries.getQueryData(['session'])).not.toBeNull();
+    queries.clear();
+  });
+  it('revocation waiting for query cancellation cannot clear a newer login', async () => {
+    const queries = new QueryClient();
+    Cookies.set('access_token', 'old-account-token');
+    queries.setQueryData(['session'], createFixtures('pending').session);
+    let release: (() => void) | undefined;
+    vi.spyOn(queries, 'cancelQueries').mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
+    const revoke = handleRevokedSession(queries);
+    expect(Cookies.get('access_token')).toBeUndefined();
+    client.onGet('/session').reply(200, createFixtures('organizer').session);
+    await completeAuthentication(queries, 'new-account-token');
+    queries.setQueryData(['private'], 'new-account-data');
+    release!(); await revoke;
+    expect(Cookies.get('access_token')).toBe('new-account-token');
+    expect(queries.getQueryData(['private'])).toBe('new-account-data');
+    queries.clear();
+  });
   it('shares one refresh between concurrent requests and retries with the new token', async () => {
     Cookies.set('access_token', 'expired');
     let calls = 0;

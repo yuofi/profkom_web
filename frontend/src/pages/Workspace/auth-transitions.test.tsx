@@ -10,7 +10,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../../utils/api";
 import { UserProvider } from "../../utils/ctx";
 import { createFixtures } from "../../mocks/fixtures";
-import { mountWorkspace, settle, change, field, submit } from "../../test/workspace";
+import { mountWorkspace, settle, change, field, submit, waitForPage } from "../../test/workspace";
 import { GreetingPage } from "../Greeting/Greeting";
 import { ProtectedRoute } from "../Wrappers/wrappers";
 import { AccountStatePage } from "./SessionPages";
@@ -27,6 +27,38 @@ vi.mock("../../components/VKAuth/authButton", () => ({
 let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 let adapter: MockAdapter | undefined;
 afterEach(async () => { await page?.cleanup(); page = undefined; adapter?.restore(); Cookies.remove("access_token"); sessionStorage.clear(); vi.restoreAllMocks(); });
+
+it("an anonymous session check on return from VK cannot cancel the pending successful login", async () => {
+  const fixture = createFixtures("organizer");
+  adapter = new MockAdapter(api);
+  const refresh = new MockAdapter(axios);
+  let finishLogin: (() => void) | undefined;
+  let authenticated = false;
+  adapter.onPost('/auth/vk').reply(() => new Promise(resolve => {
+    finishLogin = () => { authenticated = true; resolve([200, {access_token:'new-vk-session'}]); };
+  }));
+  adapter.onGet('/session').reply(() => authenticated ? [200, fixture.session] : [401, {detail:'Not authenticated'}]);
+  adapter.onGet('/profile/me').reply(200, fixture.profile);
+  refresh.onPost(/\/auth\/refresh$/).reply(401, {detail:'No refresh token'});
+  const client = new QueryClient({defaultOptions:{queries:{staleTime:Infinity,retry:false}}});
+  client.setQueryData(['session'], null);
+  try {
+    page = await mountWorkspace(<HelmetProvider><UserProvider><Routes>
+      <Route path="/auth" element={<GreetingPage />} />
+      <Route element={<ProtectedRoute />}><Route path="/" element={<p>ACTIVE_WORKSPACE</p>} /></Route>
+    </Routes></UserProvider></HelmetProvider>, {path:'/auth',client});
+    await act(async () => [...page!.container.querySelectorAll('button')].find(b=>b.textContent==='VK test')!.click());
+    await vi.waitFor(() => expect(finishLogin).toBeTypeOf('function'));
+    // Window focus/poll while VK verification is still in flight: the browser is anonymous.
+    await act(async () => { await client.invalidateQueries({queryKey:['session']}); });
+    await act(async () => finishLogin!());
+    await waitForPage(page);
+    expect(page.container.textContent).toContain('ACTIVE_WORKSPACE');
+    expect(page.container.textContent).not.toContain('Сессия изменилась');
+    expect(Cookies.get('access_token')).toBe('new-vk-session');
+    expect(adapter.history.post.filter(request=>request.url==='/auth/vk')).toHaveLength(1);
+  } finally { refresh.restore(); }
+});
 
 it.each(["pending", "rejected", "active"] as const)("A03: password and VK login use session-first for %s", async (state) => {
   for (const channel of ["password", "vk"]) {
