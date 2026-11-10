@@ -78,17 +78,21 @@ def test_login_commits_before_io_and_import_is_idempotent(client, mock_vk, mock_
     assert avatar_url(user.user_id) == url and len(mock_s3['objects']) == 1
 
 
-@pytest.mark.parametrize("phase", ["download", "storage"])
-def test_provider_storage_failure_does_not_fail_login_or_leak_secrets(phase, client, mock_vk, monkeypatch, caplog):
+@pytest.mark.parametrize("phase", ["download", "validation", "storage"])
+@pytest.mark.parametrize("failure", [TimeoutError, ValueError])
+def test_provider_storage_failure_does_not_fail_login_or_leak_secrets(phase, failure, client, mock_vk, monkeypatch, caplog):
     mock_vk(user_id="777", avatar=URL)
     def fail(*args, **kwargs):
-        raise TimeoutError("never-log-me storage-secret")
+        raise failure("never-log-me storage-secret")
     if phase == "download":
         monkeypatch.setattr(vk_avatar, "download", fail)
+    elif phase == "validation":
+        monkeypatch.setattr(vk_avatar, "validate_image", fail)
     else:
         monkeypatch.setattr(vk_avatar, "storage_client", lambda: SimpleNamespace(put_object=fail))
     response = client.post('/api/auth/vk', json={'access_token':'synthetic'})
     assert response.status_code == 200 and response.json()['access_token']
+    assert "never-log-me" not in response.text and "storage-secret" not in response.text
     assert "never-log-me" not in caplog.text and "storage-secret" not in caplog.text
     with db._session() as s:
         assert s.query(FileRecordORM).count() == 0

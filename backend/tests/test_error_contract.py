@@ -194,8 +194,18 @@ def test_new_routes_under_old_prefixes_use_the_new_shape(org, client):
 # ───────────────────────────── static checks ─────────────────────────────
 # A plain ValueError or LookupError raised by domain code would become a 422 or 404 by
 # accident; domain modules raise errors.py classes. Pydantic validators raise ValueError
-# by design, and these two are caught where they are raised.
-ALLOWED = {("account_cleanup.py", "purge"), ("api_contract.py", "cursor_page")}
+# by design. Errors from the helpers below are caught before any HTTP error mapping.
+ALLOWED = {
+    ("account_cleanup.py", "purge"),
+    ("api_contract.py", "cursor_page"),
+    # Best-effort photo import runs after VK login commits, in BackgroundTasks.
+    # import_avatar catches both helpers' ValueErrors; invalid provider bytes must
+    # neither turn a successful login into 422 nor expose provider URL/secrets.
+    # test_vk_avatar.test_provider_storage_failure_does_not_fail_login_or_leak_secrets
+    # covers download/validation failures at the real HTTP login boundary.
+    ("vk_avatar.py", "download"),
+    ("vk_avatar.py", "validate_image"),
+}
 VALIDATORS = {"field_validator", "model_validator", "validator"}
 
 
