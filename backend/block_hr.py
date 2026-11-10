@@ -30,6 +30,8 @@ def assign(block_id, uid, payload):
         raise HTTPException(403, "Only the chair, deputies and HR master can assign block HR")
     name = legacy_name(block_id)
     with db._session() as session:
+        from block_lifecycle import require_active
+        require_active(session,name)
         meta = meta_for(session, name)
         version(meta, payload.expected_revision)
         if payload.user_id is not None:

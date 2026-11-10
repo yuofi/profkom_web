@@ -3,6 +3,7 @@ import { act } from "react";
 import { Route, Routes } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { CalendarPage } from "./WorkspacePages";
+import { CalendarItemLink } from "./CalendarViews";
 import { installMockTransport } from "../../mocks/transport";
 import { mountWorkspace, waitForPage, change } from "../../test/workspace";
 import { workspaceApi } from "../../utils/api/workspace.api";
@@ -31,4 +32,11 @@ it("opens the actual season through its chip while the task title still opens th
 it("keeps meeting navigation, season filtering and the Moscow today marker intact", async () => {
   const { second } = await mount();expect(page!.container.querySelector('[aria-current="date"]')?.getAttribute("aria-label")).toBe("2026-10-27");expect(page!.container.querySelector('a[href="/meetings/subevent/team-calendar"]')).not.toBeNull();
   await change([...page!.container.querySelectorAll<HTMLSelectElement>("select")].find(select => select.closest("label")?.textContent?.startsWith("Сезон"))!, second.season_id);await waitForPage(page!);expect(page!.container.textContent).not.toContain("Проверить памятку");expect(page!.container.textContent).toContain("Обсудить программу");expect(page!.container.querySelector('[aria-current="date"]')?.getAttribute("aria-label")).toBe("2026-10-27");expect([...page!.container.querySelectorAll<HTMLAnchorElement>('a[aria-label^="Открыть сезон:"]')].every(link => link.getAttribute("href") === `/seasons/${second.season_id}`)).toBe(true);
+});
+it("keeps a seasonless block deadline readable and does not invent a season link", async () => {
+  const item: CalendarItem = { id: "no-season", season_id: null, kind: "task_deadline", title: "Будущая работа", starts_at: "2026-11-11T10:00:00Z", ends_at: null, target: { kind: "task", id: "task-no-season" } };
+  page = await mountWorkspace(<CalendarItemLink item={item} season="не указан" />);
+  await act(async () => page!.container.querySelector<HTMLAnchorElement>('a[href="/tasks/task-no-season"]')!.focus());await waitForPage(page);
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toContain("Сезон: не указан");
+  expect(document.querySelector('[role="tooltip"] a[href^="/seasons/"]')).toBeNull();
 });

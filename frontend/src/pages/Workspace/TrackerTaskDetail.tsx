@@ -1,4 +1,5 @@
 import { TaskClassificationMenu } from "./TaskClassificationMenu";
+import { TaskChatDelivery } from "./TaskChatAnnouncement";
 import { TrackerFavoriteButton } from "./TrackerFavoriteButton";
 import { TaskPlanningEditor } from "./TrackerTaskPlanning";
 import { TrackerTaskChecklist } from "./TrackerTaskChecklist";
@@ -60,7 +61,7 @@ function seasonReturn(params: URLSearchParams) {
 export function TrackerTaskPage() {
   const { id = "" } = useParams();
   const [params] = useSearchParams();
-  const query = useQuery({ queryKey: ["tasks", id], queryFn: () => tasksApi.get(id) });
+  const query = useQuery({ queryKey: ["tasks", id], queryFn: () => tasksApi.get(id), refetchInterval: query => ["pending", "sending"].includes(query.state.data?.chat_announcement?.state ?? "") ? 5000 : false });
   // Comments and seasons need only the address: start them with the task, under the keys
   // the activity and season parameter read, instead of one round trip later.
   useQuery({ queryKey: ["tasks", id, "comments"], queryFn: () => tasksApi.comments(id), enabled: !!id });
@@ -116,6 +117,7 @@ function TaskContent({ task, assignmentId, accountingRequested=false, back }: { 
     </BrandedHeader>
     <div className={s.workspace}>
       <div className={s.main}>
+        {task.chat_announcement && <TaskChatDelivery task={task} />}
         {reviewNotes.length > 0 && <section className={s.reviewNote} aria-label="Комментарий руководителя"><h2>Комментарий руководителя</h2>{reviewNotes.map(note => <MarkdownContent key={note} body={note} />)}</section>}
         {task.legacy_mixed_statuses && <p className={w.warning}>У этой задачи сохранены разные исторические результаты исполнителей. Они остаются в учёте; общий статус не заменяет прежние решения.</p>}
         <section className={s.description} aria-label="Описание задачи">

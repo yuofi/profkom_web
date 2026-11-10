@@ -85,7 +85,11 @@ def test_guard_reads_the_account_in_a_worker_thread(client, make_user, monkeypat
     # The actor is still visible to the endpoint (set in the request's own context).
     import membership
     actors = []
-    monkeypatch.setattr(membership, "blocks_for", lambda uid: actors.append(uid) or [])
+    def recorded_blocks(uid, *, include_archived=False):
+        actors.append(uid)
+        assert include_archived is False
+        return []
+    monkeypatch.setattr(membership, "blocks_for", recorded_blocks)
     assert client.get("/api/blocks", headers=actor.headers).json() == []
     assert actors == [actor.user_id]
 

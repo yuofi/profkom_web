@@ -158,3 +158,27 @@ def test_full_mode_with_account_restores_own_profile(live, accounts, who):
     if who == "chair":
         # the chair's DELETE /api/profile/{id} archives an account, so it is never sent
         assert not any(line.startswith("DELETE ") for line in sent), sent
+
+
+def test_full_mode_does_not_create_a_block_for_a_deputy(live):
+    credentials = _register(live, approve=True)
+    deputy = _profile(live, credentials)
+    _, leadership = _call(live.url, "GET", "/api/leadership", token=live.chair)
+    previous = [person["user_id"] for person in leadership["deputies"]]
+    status, _ = _call(live.url, "PUT", "/api/leadership/deputies",
+                      {"expected_revision": leadership["revision"],
+                       "user_ids": [*previous, deputy["user_id"]]}, token=live.chair)
+    assert status == 200
+    try:
+        _, before = _call(live.url, "GET", "/api/blocks", token=live.chair)
+        out, sent = _run(live, "--email", credentials[0], "--password", credentials[1])
+        assert "учётка может создавать блоки" in out
+        assert "POST /api/blocks" not in sent
+        assert not any(line.startswith("DELETE ") for line in sent), sent
+        _, after = _call(live.url, "GET", "/api/blocks", token=live.chair)
+        assert {block["block_id"] for block in after} == {block["block_id"] for block in before}
+    finally:
+        _, current = _call(live.url, "GET", "/api/leadership", token=live.chair)
+        status, _ = _call(live.url, "PUT", "/api/leadership/deputies",
+                          {"expected_revision": current["revision"], "user_ids": previous}, token=live.chair)
+        assert status == 200

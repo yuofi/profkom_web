@@ -341,7 +341,9 @@ def _global_readers(session, ids):
     result={leadership.chair_user_id} if leadership else set()
     deputies=_json_ids(leadership.deputies_json) if leadership else []
     result|={uid for uid in ids if uid in deputies}
-    result|={row[0] for row in session.query(BlockORM.master_user_id).filter(BlockORM.is_hr == True)}  # noqa: E712
+    hr_names = _hr_block_names()
+    if hr_names:
+        result|={row[0] for row in session.query(BlockORM.master_user_id).filter(BlockORM.name.in_(hr_names))}
     result|=_role_holders(session,"block",_hr_block_names(),{"deputy_master"})
     from service_account import is_service_id
     result|={uid for uid in ids if is_service_id(uid)}  # access.all_queue_reader
@@ -514,11 +516,12 @@ def queue_bindings(session, queues):
 
     A queue has no season of its own (owner 2026-11-08, В8). An event or subevent queue
     shows its event's season and takes new tasks while that season is planned or open;
-    block and chair queues take them in an open season, legacy independent ones in a
+    block queues do not require a season; chair queues take them in an open season, legacy independent ones in a
     planned or open one, as database.create_task decides. Service queues (KKR, support)
     are left to the caller. A fixed handful of reads for any number of queues.
     """
     from database import SeasonORM
+    from domain_models import BlockMetaORM
     queues=[queue for queue in queues if queue is not None]
     if not queues:return {}
     ids={}
@@ -530,7 +533,8 @@ def queue_bindings(session, queues):
     event_ids=set(ids.get('event',()))|{row.event_id for row in subevents.values()}
     events={row.event_id:row for row in session.query(EventORM.event_id,EventORM.title,EventORM.season_id).filter(
         EventORM.event_id.in_(sorted(event_ids)))} if event_ids else {}
-    blocks={row.name for row in session.query(BlockORM.name).filter(BlockORM.name.in_(sorted(ids['block'])))} if ids.get('block') else set()
+    blocks={row.name:row.archived_at for row in session.query(BlockORM.name,BlockMetaORM.archived_at).outerjoin(
+        BlockMetaORM,BlockMetaORM.legacy_name==BlockORM.name).filter(BlockORM.name.in_(sorted(ids['block'])))} if ids.get('block') else {}
     def creation(reason):return dict(available=reason is None,reason=reason)
     result={}
     for queue in queues:
@@ -548,7 +552,7 @@ def queue_bindings(session, queues):
             if title is None:reason='team_missing'
         elif kind=='block':
             title=sid if sid in blocks else None
-            reason='team_missing' if title is None else None if 'open' in states else 'no_open_season'
+            reason='team_missing' if title is None else 'block_archived' if blocks[sid] else None
         elif kind=='chair':
             title=CHAIR_SCOPE_TITLE
             reason=None if 'open' in states else 'no_open_season'
@@ -744,6 +748,9 @@ def catalog(uid,cursor=None):
         for kind,objects in [('event',session.query(EventORM).all()),('block',session.query(BlockORM).all()),('subevent',session.query(SubeventORM).all())]:
             for obj in objects:
                 sid=obj.name if kind=='block' else obj.event_id if kind=='event' else obj.subevent_id
+                if kind == 'block':
+                    from block_lifecycle import is_archived
+                    if is_archived(session, sid):continue
                 if access.allowed(uid,'queue.create',kind,sid):
                     scopes.append(dict(**scope_out(ScopeRef(kind=kind,id=sid)),title=obj.name if kind=='block' else obj.title))
         priority={'chair':0,'event':1,'block':2,'subevent':3}
@@ -777,6 +784,9 @@ def create(uid,name,key,scope=None,owner_user_id=None,is_private=False):
             scope_object=session.get(BlockORM,sid) if kind=='block' else session.get(EventORM,sid) if kind=='event' else session.get(SubeventORM,sid)
             if not scope_object:raise NotFound('Queue scope not found')
             if not db.can_view_scope(uid,kind,sid):raise Forbidden('Cannot create queue outside a readable scope')
+            if kind == 'block':
+                from block_lifecycle import require_active
+                require_active(session, sid)
         if not name.strip():raise InvalidInput('Queue name is required')
         if not re.fullmatch(QUEUE_KEY,key):raise InvalidInput('Queue key must start with an uppercase ASCII letter followed by uppercase ASCII letters or digits')
         if key=='KKR':raise Conflict('Queue key KKR is reserved for accounting control','control_queue_conflict')

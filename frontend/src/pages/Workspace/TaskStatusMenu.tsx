@@ -4,7 +4,10 @@ import { tasksApi } from "../../utils/api/tasks.api";
 import { userMessage } from "../../utils/api/messages";
 import { Glyph } from "../../components/Workspace/WorkspaceUI";
 import { toneStyle } from "../../components/Workspace/sections";
-import { useTaskCommand } from "./taskCommands";
+import { useDialogHold, useTaskCommand } from "./taskCommands";
+import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
+import { TrackerTaskDialog } from "./TrackerTaskDialog";
+import { TaskInitialSeasonEditor } from "./TaskSeasonDialog";
 import w from "../../components/Workspace/Workspace.module.css";
 import s from "./TaskStatusMenu.module.css";
 import { publicStatusNames as statusNames, statusTones, taskStatus, taskTransitions } from "./trackerStatus";
@@ -20,6 +23,8 @@ function ChipLabel({ state }: { state: TaskPublicStatus }) {
 export function TaskStatusMenu({ task, onChanged, onClosed }: { task: Task; onChanged?: () => void; onClosed?: (saved: Task) => void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const [choosingSeason, setChoosingSeason] = useState(false), hold = useDialogHold();
+  const closeSeason = () => { setChoosingSeason(false);hold.release();trigger.current?.focus(); };
   const ref = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
   const run = useTaskCommand(task);
   const state = taskStatus(task), transitions = taskTransitions(task);
@@ -42,7 +47,9 @@ export function TaskStatusMenu({ task, onChanged, onClosed }: { task: Task; onCh
   // keyboard focus it just got back from the menu to <body>.
   const choose = async (next: TaskPublicStatus) => {
     if (busy || !transitions.includes(next)) return;
-    setOpen(false);trigger.current?.focus();setError("");setBusy(true);
+    setOpen(false);trigger.current?.focus();setError("");
+    if (next === "closed" && task.scope.kind === "block" && !task.season_id) { setChoosingSeason(true);return; }
+    setBusy(true);
     try {
       const saved = await run(expected => tasksApi.changeStatus(task.task_id, { expected_revision: expected, status: next }));
       onChanged?.();
@@ -64,5 +71,6 @@ export function TaskStatusMenu({ task, onChanged, onClosed }: { task: Task; onCh
       {open && <div ref={menu} role="menu" tabIndex={-1} aria-label="Выбор статуса задачи" className={`${s.menu} ${alignEnd ? s.menuEnd : ""}`}><p className={s.menuNote}>Общий статус задачи</p>{Object.entries(statusNames).map(([key, label]) => <button type="button" role="menuitem" className={s.option} key={key} disabled={!transitions.includes(key as TaskPublicStatus)} aria-current={key === state ? "true" : undefined} onClick={() => { void choose(key as TaskPublicStatus); }}><span className={s.menuDot} style={toneStyle(statusTones[key as TaskPublicStatus])} />{label}{key === state && <Glyph name="check" />}</button>)}</div>}
     </>}
     {error && <p role="alert" className={w.error}>{error}</p>}
+    {choosingSeason && <UnsavedChangesScope><TrackerTaskDialog title="Сезон перед закрытием задачи" onClose={closeSeason}><TaskInitialSeasonEditor task={task} closeTask onSending={hold.hold} onSaved={saved => { closeSeason();onChanged?.();onClosed?.(saved); }} /></TrackerTaskDialog></UnsavedChangesScope>}
   </div>;
 }

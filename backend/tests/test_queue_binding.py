@@ -61,23 +61,25 @@ def test_queue_shows_its_team_event_season_and_the_creation_rule_of_tasks(client
     set_state(sid, 'summarizing')
     assert place(client, superuser, by_event['queue_id'])['task_creation'] == {'available': False, 'reason': 'season_summarizing'}
     assert place(client, superuser, by_sub['queue_id'])['season']['state'] == 'summarizing'
-    assert place(client, w['master'], by_block['queue_id'])['task_creation'] == {'available': False, 'reason': 'no_open_season'}
+    assert place(client, w['master'], by_block['queue_id'])['task_creation'] == available
     assert place(client, superuser, by_chair['queue_id'])['task_creation'] == {'available': False, 'reason': 'no_open_season'}
     # The hint says what POST /tasks answers.
-    for actor, item in ((superuser, by_event), (w['master'], by_block)):
+    for actor, item in ((superuser, by_event), (superuser, by_chair)):
         refused = task_in(client, actor, w, item, sid)
         assert refused.status_code == 409 and 'season' in refused.json()['detail']['message'].lower(), refused.text
+    assert task_in(client, w['master'], w, by_block, None).status_code == 200
+    assert task_in(client, w['master'], w, by_block, sid).status_code == 200
 
     set_state(sid, 'closed')
     assert place(client, superuser, by_sub['queue_id'])['task_creation'] == {'available': False, 'reason': 'season_closed'}
-    # A planned season opens nothing for the closed event, a block or the chair; a legacy
-    # independent queue takes tasks in a planned season.
+    # Block queues remain usable without a season; the closed event and chair
+    # keep their original rules. A legacy independent queue takes planned tasks.
     now = datetime.now(timezone.utc)
     planned = ok(client.post('/api/seasons', headers=superuser.headers, json={'title': 'Следующий', 'type': 'winter_spring',
         'starts_at': (now+timedelta(days=60)).isoformat(), 'ends_at': (now+timedelta(days=120)).isoformat()}))
     assert planned['state'] == 'planned'
     assert place(client, superuser, by_event['queue_id'])['task_creation']['reason'] == 'season_closed'
-    assert place(client, w['master'], by_block['queue_id'])['task_creation']['reason'] == 'no_open_season'
+    assert place(client, w['master'], by_block['queue_id'])['task_creation'] == available
     independent = legacy_queue(client, superuser, key='LEGACYPLACE')
     assert {key: independent[key] for key in PLACE} == {'scope_title': None, 'season': None, 'task_creation': available}
     set_state(planned['season_id'], 'closed')

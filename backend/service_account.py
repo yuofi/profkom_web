@@ -223,6 +223,7 @@ def recipients(session):
     from database import BlockORM, LeadershipORM
     lead = session.get(LeadershipORM, 1)
     block = session.get(BlockORM, IT_BLOCK)
+    if __import__("block_lifecycle").is_archived(session,IT_BLOCK): block = None
     result = {lead.chair_user_id if lead else None, block.master_user_id if block else None}
     return sorted(uid for uid in result if isinstance(uid, int))
 

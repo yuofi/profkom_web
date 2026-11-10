@@ -8,6 +8,7 @@ import { profileFeatureMock } from "./profileFeatures";
 import { broadcastMock } from "./broadcasts";
 import { botConsoleMock } from "./botConsole";
 import { meritJournalMock } from "./meritJournal";
+import { blockLifecycleMock } from "./blockLifecycle";
 import {
   emptyCriteria,
   richText,
@@ -91,6 +92,7 @@ export function installMockTransport(
   } = {},
 ) {
   const state = createFixtures(role);
+  const blockLifecycle = blockLifecycleMock(state, role);
   const commentMentionIds = (body: string) => {
     const prose = body.replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[ \t]*$/gm, "").replace(/^(?: {4}|\t).*$/gm, "").replace(/(`+)[\s\S]*?\1(?!`)/g, "");
     return new Set([...prose.matchAll(/(?<!!|\\)\[(?:\\.|[^\]\\\n])*\]\(\/contacts\/([1-9][0-9]*)\)/g)].map(match => Number(match[1])));
@@ -377,7 +379,7 @@ export function installMockTransport(
     return [
       ...(all ? [{ kind: "chair" as const, id: "chair", title: "Председатель" }] : []),
       ...state.events.filter(event => all || leads(event.leaders)).map(event => ({ kind: "event" as const, id: event.event_id, title: event.title })),
-      ...state.blocks.filter(block => all || block.master && leads([block.master])).map(block => ({ kind: "block" as const, id: block.block_id, title: block.name })),
+      ...state.blocks.filter(block => !block.archived_at && (all || block.master && leads([block.master]))).map(block => ({ kind: "block" as const, id: block.block_id, title: block.name })),
       ...state.subevents.filter(subevent => all || leads(subevent.leaders) || eventLead(subevent.event_id)).map(subevent => ({ kind: "subevent" as const, id: subevent.subevent_id, title: subevent.title })),
     ];
   };
@@ -390,7 +392,7 @@ export function installMockTransport(
     const place = (scope_title: string | null, season: TaskQueue["season"], reason: TaskQueueCreation["reason"]) => ({ scope_title, season, task_creation: service ? null : creation(reason) });
     if (!scope) return place(null, null, states.has("planned") || states.has("open") ? null : "no_season");
     if (scope.kind === "chair") return place("Работа председателя", null, states.has("open") ? null : "no_open_season");
-    if (scope.kind === "block") { const block = state.blocks.find(item => item.block_id === scope.id);return place(block?.name ?? null, null, !block ? "team_missing" : states.has("open") ? null : "no_open_season"); }
+    if (scope.kind === "block") { const block = state.blocks.find(item => item.block_id === scope.id);return place(block?.name ?? null, null, !block ? "team_missing" : block.archived_at ? "block_archived" : null); }
     const sub = scope.kind === "subevent" ? state.subevents.find(item => item.subevent_id === scope.id) : undefined;
     const event = state.events.find(item => item.event_id === (scope.kind === "event" ? scope.id : sub?.event_id)), season = state.seasons.find(item => item.season_id === event?.season_id);
     const title = scope.kind === "event" ? event?.title : sub?.title;
@@ -474,6 +476,8 @@ export function installMockTransport(
   const publicTaskWritable = (task: Task) => task.scope.kind === "queue" || state.seasons.find(season => season.season_id === task.season_id)?.state !== "closed" || state.chair || role === "chair-deputy";
   const hydrateTask = (task: Task) => {
     task.status=publicStatus(task.status);
+    task.capabilities = task.capabilities.filter(cap => cap !== "assign_season");
+    if (task.scope.kind === "block" && !task.season_id && (task.capabilities.includes("edit_task") || task.created_by?.user_id === state.session.user_id)) task.capabilities.push("assign_season");
     task.task_type ??= "task";task.priority ??= "normal";task.starts_at ??= null;task.checklist ??= [];
     task.is_favorite = personalFavorites.get(state.session.user_id)?.has(task.task_id) ?? false;
     if (role === "hr" || role === "hr-deputy") {
@@ -554,13 +558,25 @@ export function installMockTransport(
     if (task.capabilities.includes("edit_task")) task.capabilities.push("edit_task_description");
     hydrateTask(task);
   };
+  const initialSeasonError = (task: Task, value: unknown): Reply | undefined => {
+    if (task.scope.kind !== "block") return fail(422, "task_season_scope", "Сезон задаётся командой");
+    if (task.season_id) return fail(409, "task_season_correction_required", "Используйте исправление сезона");
+    if (!value) return fail(409, "task_season_required", "Укажите сезон");
+    const season = state.seasons.find(item => item.season_id === value);
+    if (!season) return fail(409, "task_season_unavailable", "Сезон недоступен");
+    if (season.state === "closed") return fail(409, "season_closed", "Сезон закрыт");
+  };
   const transitionTask = (task: Task, data: Body): Reply => {
-    const extra = extraInputs(data, ["status", "message", "text", "links", "file_ids", "reason"]);if (extra) return extra;
+    const extra = extraInputs(data, ["status", "message", "text", "links", "file_ids", "reason", "season_id"]);if (extra) return extra;
     if (!["open", "in_progress", "completed", "closed", "assigned", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"].includes(String(data.status))) return fail(422, "invalid_input", "Неизвестный статус");
     if (mismatch(data, task)) return conflict();
     const current = publicStatus(task.status), next = publicStatus(data.status as AssignmentStatus|TaskPublicStatus);
     const author=task.created_by?.user_id;const owner=state.queues.find(q=>q.queue_id===task.queue?.queue_id)?.owner?.user_id;
     if ((current==="closed"||next==="closed") && state.session.user_id!==(author??owner)) return denied();
+    if (next === "closed" && task.scope.kind === "block" && !task.season_id) {
+      const error = initialSeasonError(task, data.season_id);if (error) return error;
+      task.season_id = String(data.season_id);
+    } else if ("season_id" in data) return fail(409, "task_season_correction_required", "Используйте исправление сезона");
     if(next==="closed"&&current!=="closed")task.closed_at=mockNow;
     task.status = next;task.revision++;task.assignments.forEach(a => { a.status = assignmentStatus(next);a.revision++; });refreshTake(task);
     rememberTask(task, "status_changed", "Изменён рабочий статус задачи", current, next);
@@ -1281,6 +1297,16 @@ export function installMockTransport(
       queue.revision!++;return [200, visibleQueue(queue)];
     }
     if (path === "/tasks/facets" && method === "get") return [200, taskFacets()];
+    // The role-picker demo has no VK chat or simulated confirmation. Ordinary task
+    // creation remains usable; the full binding flow is covered by local API/e2e tests.
+    if (path === "/tasks/chat-context" && method === "get") {
+      const queue = state.queues.find(item => item.queue_id === url.searchParams.get("queue_id"));
+      if (url.searchParams.has("queue_id") && !queue) return fail(404, "not_found", "Очередь недоступна");
+      if (queue && !readsQueue(queue)) return queueRefusal(queue);
+      const kind = queue ? queue.scope?.kind : url.searchParams.get("scope_kind"), id = queue ? queue.scope?.id : url.searchParams.get("scope_id");
+      const scope = (kind === "block" || kind === "event") && id ? { kind, id } : null;
+      return [200, { scope, binding: null, available: false, reason: queue?.is_private ? "private_queue" : scope ? "no_chat" : "unsupported_scope", can_manage: false, bot_online: false, recipient_mode: url.searchParams.get("assignee_user_ids") ? "assignees" : "all", missing_vk_user_ids: [] }];
+    }
     if (path === "/tasks") {
       if (method === "get") {
         // Like the server: a queue filter first runs the queue's own check (404, 403 with its body).
@@ -1334,8 +1360,10 @@ export function installMockTransport(
       if (selectedQueue ? !readsQueue(selectedQueue) : !data.scope || !(trackerAdmin || readsScopeTask({ scope: data.scope } as Task))) return denied();
       if (!state.manager && ((data.assignees ?? []) as { user_id: number }[]).some(a => a.user_id !== state.session.user_id)) return denied();
       const chosenScope: Task["scope"] = selectedQueue?.scope ?? (selectedQueue ? { kind: "queue", id: selectedQueue.queue_id } : clone(data.scope) as Task["scope"]);
+      if (selectedQueue && queuePlace(selectedQueue).task_creation?.available === false) return fail(409, queuePlace(selectedQueue).task_creation!.reason!, "Очередь не принимает задачи");
+      if (!data.season_id && chosenScope.kind !== "block") return fail(422, "task_season_required", "Укажите сезон");
       const task: Task = {
-        season_id: String(data.season_id),
+        season_id: data.season_id ? String(data.season_id) : null,
         scope: chosenScope,
         title: String(data.title),
         description: publicSubmission(data.description),
@@ -1597,7 +1625,7 @@ export function installMockTransport(
         return [200, clone(inputs)];
       }
       if (method === "get") return [200, visibleTask(task)];
-      const extraTask = extraInputs(data, ["title", "description", "parent_task_id", "file_ids", "task_type", "priority", "starts_at", "checklist"]);if (extraTask) return extraTask;
+      const extraTask = extraInputs(data, ["title", "description", "parent_task_id", "file_ids", "task_type", "priority", "starts_at", "checklist", "season_id"]);if (extraTask) return extraTask;
       if (!Number.isInteger(data.expected_revision)) return fail(422, "invalid_input", "Укажите версию задачи");
       if (mismatch(data, task)) return conflict();
       if ("task_type" in data && !task.capabilities.includes("change_task_type")) return denied();
@@ -1609,6 +1637,10 @@ export function installMockTransport(
       if (["title", "parent_task_id", "file_ids"].some(key => key in data) && !task.capabilities.includes("edit_task")) return denied();
       if ("description" in data && !task.capabilities.includes("edit_task_description") && !task.capabilities.includes("edit_task")) return denied();
       const stage2 = stage2Patch(data, task);if (stage2.error) return stage2.error;
+      if ("season_id" in data) {
+        if (!task.capabilities.includes("assign_season")) return fail(403, "task_season_forbidden", "Нельзя назначить сезон");
+        const error = initialSeasonError(task, data.season_id);if (error) return error;
+      }
       const changes: TaskHistoryChange[] = [];
       for (const field of ["task_type", "priority", "starts_at"] as const) {
         if ((field in data || field === "starts_at" && "task_type" in data && data.task_type === "milestone" && !("starts_at" in data)) && stage2.value![field] !== task[field]) changes.push({ field, label: field === "task_type" ? "Тип задачи" : field === "priority" ? "Приоритет" : "Плановое начало", before: task[field] ?? null, after: stage2.value![field] ?? null });
@@ -1622,6 +1654,7 @@ export function installMockTransport(
         const before = task.parent_task?.task_key ?? null;task.parent_task_id = parent?.task_id ?? null;task.parent_task = parent ? { task_id: parent.task_id, task_key: parent.task_key!, title: parent.title } : null;
         changes.push({ field: "parent_task", label: "Родительская задача", before, after: parent?.task_key ?? null });
       }
+      if ("season_id" in data) { task.season_id = String(data.season_id);changes.push({ field: "season", label: "Сезон", before: null, after: task.season_id }); }
       Object.assign(task, stage2.value);
       if (data.file_ids) task.attachments = taskFiles(data.file_ids);
       if (typeof data.title === "string") task.title = data.title;
@@ -2047,7 +2080,8 @@ export function installMockTransport(
       material.revision += 1;
       return [200, materialView(material)];
     }
-    if (path === "/blocks") return [200, clone(state.blocks)];
+    const lifecycleReply = blockLifecycle.handle(path, method, data);if (lifecycleReply) return lifecycleReply;
+    if (path === "/blocks") return [200, clone(state.blocks.filter(block => url.searchParams.get("include_archived") === "true" || !block.archived_at).map(blockLifecycle.decorate))];
     if (parts[0] === "blocks" && parts[2] === "hr" && method === "put") {
       const block = state.blocks.find(item => item.block_id === parts[1]);
       if (!block) return fail(404, "not_found", "Блок недоступен");
@@ -2078,6 +2112,8 @@ export function installMockTransport(
         block.members = block.members.filter(member => member.user.user_id !== uid);
         return [200, { block_id: block.block_id, membership_state: "left" }];
       }
+      if (block.archived_at) return fail(409, "block_archived", "Блок удалён");
+      if ("name" in data && !block.capabilities.includes("rename_block")) return denied();
       const avatarChange = Object.hasOwn(data, "avatar_file_id");
       if (avatarChange && !block.capabilities.includes("edit_block")) return denied();
       if (!state.manager && !avatarChange) return denied();

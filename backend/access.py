@@ -72,6 +72,10 @@ class ByState(dict):
 
 
 POLICY = {
+    "block.create": TACHKI,
+    "block.delete": TACHKI,
+    "scope.chat.manage": TACHKI | {BLOCK_MASTER, EVENT_LEADER},
+    "task.chat_announce": TACHKI | {BLOCK_MASTER, EVENT_LEADER},
     # Seasons
     "season.create": {CHAIR},
     "season.edit": {CHAIR},
@@ -309,15 +313,21 @@ def subevent_ids(event_id):
         return tuple(row[0] for row in session.query(SubeventORM.subevent_id).filter_by(event_id=event_id))
 
 
+def _archived_block(name):
+    from block_lifecycle import is_archived
+    with db._session() as session:
+        return is_archived(session, name)
+
+
 @memoized("access.hr_blocks", copy_result=False)
 def _hr_block_names():
     blocks = _block_facts()
     if blocks is not None:
-        return frozenset(name for name, (_, is_hr, _) in blocks.items() if is_hr)
+        return frozenset(name for name, (_, is_hr, _) in blocks.items() if is_hr and not _archived_block(name))
     from database import BlockORM
 
     with db._session() as session:
-        return frozenset(b.name for b in session.query(BlockORM).filter(BlockORM.is_hr == True))  # noqa: E712
+        return frozenset(b.name for b in session.query(BlockORM).filter(BlockORM.is_hr == True) if not _archived_block(b.name))  # noqa: E712
 
 
 @memoized("access.block_name", copy_result=False)
@@ -343,7 +353,7 @@ def _is_hr_master(uid):
     blocks = _block_facts() if _plain_uid(uid) else None
     if blocks is None:
         return db.is_hr_master(uid)
-    return any(is_hr and master == uid for master, is_hr, _ in blocks.values())
+    return any(is_hr and master == uid and not _archived_block(name) for name,(master,is_hr,_) in blocks.items())
 
 
 def _mastered_blocks(uid):
@@ -351,7 +361,7 @@ def _mastered_blocks(uid):
     blocks = _block_facts() if _plain_uid(uid) else None
     if blocks is None:
         return frozenset(db.get_user_master_block_names(uid))
-    return frozenset(name for name, (master, _, _) in blocks.items() if master == uid)
+    return frozenset(name for name, (master, _, _) in blocks.items() if master == uid and not _archived_block(name))
 
 
 def _assignment_roles(uid):
@@ -386,6 +396,7 @@ def _global_relations(uid):
         rel.add(PGAS_ADMIN)
     hr_blocks = _hr_block_names()
     for scope_kind, scope_id, role in _assignment_roles(uid):
+        if scope_kind == "block" and _archived_block(scope_id): continue
         if scope_kind == "block" and role == "deputy_master" and scope_id in hr_blocks:
             # The explicit HR deputy: global HR grants by POLICY; a block lead like any deputy
             # (owner, 2026-10-31, GL-09). CLOSED_SEASON still leaves them out (SE-13).
@@ -617,7 +628,7 @@ def scope_access_revision(uid):
         scopes.append(sorted((m.queue_id,m.active,m.request_id,m.revoked_at) for m in session.query(TaskQueueMemberORM).filter_by(user_id=uid)))
         from tracker_collaboration_models import TaskAccessGrantORM
         scopes.append(sorted((g.task_id,g.active,g.granted_at,g.revoked_at) for g in session.query(TaskAccessGrantORM).filter_by(user_id=uid)))
-        scopes.append(sorted((row.block_id,getattr(row,"hr_user_id",None)) for row in session.query(BlockMetaORM)))
+        scopes.append(sorted((row.block_id,getattr(row,"hr_user_id",None),row.archived_at) for row in session.query(BlockMetaORM)))
         from event_workspace_models import EventWorkspaceMetaORM
         scopes.append(sorted((row.owner_id,row.hr_user_id) for row in session.query(EventWorkspaceMetaORM).filter_by(owner_kind="subevent")))
         from support_models import SupportConfigORM, SupportStaffORM
@@ -632,6 +643,7 @@ def _caps(table, uid, kind=None, scope_id=None, state=None):
 
 
 GLOBAL_CAPS = {
+    "create_block": "block.create",
     "create_material": "material.create",
     "create_shared_material": "material.create_general",  # A-MAT-13
     "view_unresolved_assignments": "queue.view",
@@ -697,6 +709,7 @@ def season_caps(season, uid=None):
 
 
 EVENT_CAPS = {
+    "manage_chat": "scope.chat.manage",
     "edit_event": "event.edit",
     "close_event": "event.close",
     "reopen_event": "event.reopen",
@@ -855,6 +868,7 @@ def leadership_caps(uid):
 
 
 BLOCK_CAPS = {
+    "manage_chat": "scope.chat.manage",
     "edit_block": "block.edit",
     "view_tasks": "task.view",
     "view_unresolved_assignments": "task.review",
@@ -868,9 +882,9 @@ BLOCK_CAPS = {
 
 
 def block_caps(uid, name, open_season):
-    """The block card; block tasks are created only in an open season."""
+    """Active blocks can create tasks before their season is selected."""
     table = dict(BLOCK_CAPS)
-    if open_season:
+    if not _archived_block(name):
         table["create_task"] = "task.create"
     return _caps(table, uid, "block", name)
 

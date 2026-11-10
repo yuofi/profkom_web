@@ -30,7 +30,9 @@ def _roles(session, role, kind, sid, reads=None):
 
 
 def _hr(session, reads=None):
-    blocks = session.query(BlockORM).filter_by(is_hr=True).all()
+    from block_lifecycle import archived_identities
+    archived = archived_identities(session)
+    blocks = [block for block in session.query(BlockORM).filter_by(is_hr=True) if block.name not in archived]
     masters = {b.master_user_id for b in blocks if _active(session, b.master_user_id)}
     deputies = set()
     for block in blocks:
@@ -153,6 +155,10 @@ def _scopes(session, season_id, reads=None):
     for block in session.query(BlockORM):
         meta = reads.block_meta(block.name)
         if meta:
+            # Keep old accounting controls/work, but never invent new obligations
+            # for an archived team when a later season opens.
+            if meta.archived_at and not reads.control("block",meta.block_id) and not reads.candidates("block",block.name):
+                continue
             yield 'block', meta.block_id, block.name, block.name, {block.master_user_id} if _active(session, block.master_user_id) else set(), set()
     for event in reads.season_events():
         heads = _roles(session, access.EVENT_LEADER, 'event', event.event_id, reads)

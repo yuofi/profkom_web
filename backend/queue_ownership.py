@@ -28,7 +28,7 @@ _STARTUP_PENDING = False
 _RELEVANT = {
     UserORM: ("account_state", "banned", "blocks"),
     BlockORM: ("name", "master_user_id", "is_hr", "arr_of_human"),
-    BlockMetaORM: ("hr_user_id",),
+    BlockMetaORM: ("hr_user_id", "archived_at"),
     EventWorkspaceMetaORM: ("hr_user_id",),
     LeadershipORM: ("chair_user_id", "deputies_json"),
     RoleAssignmentORM: ("user_id", "role", "scope_kind", "scope_id", "principal_assignment_id"),
@@ -74,8 +74,10 @@ def _successor(session, queue):
         if block and block.master_user_id:
             candidates.append((block.master_user_id, "block_master"))
     # is_hr is the configured identity; no matching by title, name or legacy flags.
+    from block_lifecycle import archived_identities
+    archived = archived_identities(session)
     for block in session.query(BlockORM).filter_by(is_hr=True).order_by(BlockORM.name):
-        if block.master_user_id:
+        if block.master_user_id and block.name not in archived:
             candidates.append((block.master_user_id, "hr_master"))
     leadership = session.get(LeadershipORM, 1)
     if leadership and leadership.chair_user_id:
@@ -282,6 +284,8 @@ def _note(session, obj, state):
             users.update(_listed(raw))
         scopes.update(("block", name) for name in _values(obj, "name"))
     elif isinstance(obj, BlockMetaORM):
+        if state != "dirty" or _changed(obj, "archived_at"):
+            scope["full"] = True
         users.update(_values(obj, "hr_user_id"))
         scopes.update(("block", name) for name in _values(obj, "legacy_name"))
     elif isinstance(obj, EventWorkspaceMetaORM):

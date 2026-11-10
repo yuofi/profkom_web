@@ -38,6 +38,8 @@ Every HTTP command uses one unit of work. The async HTTP dependency uses Databas
 
 Block IDs are stable UUIDs mapped to legacy names in BlockMeta; internal legacy task/role/source storage still uses names in some tables, so use membership boundary conversion helpers. Renaming must preserve IDs and update coupled internal names. Master/deputy service roles are independent from ordinary membership.
 
+Block lifecycle (owner 2026-11-10): chair/deputies create and rename blocks; existing scoped avatar/description editing remains. Two distinct current human chair/deputies explicitly approve deletion; the second approval starts 72 hours, with notices to all current leaders immediately, at 24/48 hours and execution. Any current human leader may cancel before execution; the service account never substitutes a human vote. Persisted requests and an independent bounded worker make timing restart-safe without GET writes or a running bot. Recheck both approvers before execution. Archive retains stable IDs, old tasks/KKR/guides and historical scoped roster access, ends current membership/role tenures and excludes the block from current global authority and active selectors. Queues remain readable but refuse new tasks; startup/restore must not resurrect active membership. See backend/docs/BLOCK_LIFECYCLE.md.
+
 Registration applications have a bounded resubmission history. Block requests have separate HR/block stages and server-owned 72-hour clocks. Membership and active/approved participation intervals drive category promotion; scores do not imply tenure. Unknown imported dates remain unknown. A separate observed-state migration records participation from its observation timestamp onward, enabling future tenure without backdating a legacy join.
 
 Closed summary versions freeze participants, categories, master recipients, bonus bases and the previous-summary version. Corrections are atomic and versioned. Report publication/version history is independent of KKR. Closed report editors are saved actual leaders/deputies; removed authors get no fallback right. Current corresponding-series leadership grants published historical read, not draft/edit or past tracker access.
@@ -92,6 +94,8 @@ their ticket (GL-22). The managed KKR queue
 and control epics cannot be shared or manually modified; current managed roles govern
 control reads even for old ordinary grant rows. Control epics remain open all season,
 link ordinary closed work as related, and never create credit or close blockers.
+
+An active block queue does not require an open season. Its tasks may start with null season_id; calendar/unresolved DTOs preserve null. First placement uses task_seasons.assign under public-editor or close-actor rights and validates dates and both directions of task relations. A close command may assign the first season atomically; closure and private accounting refuse missing season. Existing-season moves keep the correction workflow. Event/subevent/chair/support rules are unchanged. Seasonless block chat announcements remain valid, but archive cancels pending delivery. The UI shows a compact red missing-season badge and requests a season before closing, using the shared task command queue.
 
 Season coefficients apply once over raw ledger values, including negatives/zero;
 approved snapshots remain immutable except authorized versioned correction. KKR

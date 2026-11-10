@@ -173,7 +173,12 @@ def last_bytes(value):
     return value if len(raw) <= OUTPUT_LIMIT else raw[-OUTPUT_LIMIT:].decode(errors="ignore")
 
 
+from pydantic import model_serializer
+from task_chat import Result as ChatResult, Observation as ChatObservation
+
+
 class Heartbeat(Lenient):
+    features: list[str] = Field(default_factory=list, max_length=32)
     version: str = Field(max_length=64)
     commit: str = Field("", max_length=64)
     started_at: datetime
@@ -250,6 +255,8 @@ class CommandResult(Lenient):
 
 
 class Report(Lenient):
+    chat_results: list[ChatResult] = Field(default_factory=list, max_length=100)
+    chat_observations: list[ChatObservation] = Field(default_factory=list, max_length=200)
     api: Literal[1] = API
     report_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     boot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
@@ -316,6 +323,7 @@ class Command(BaseModel):
 
 
 class Work(BaseModel):
+    chat_announcements: list[dict] | None = None
     api: int = API
     server_time: str
     poll_after_ms: int = POLL_AFTER_MS
@@ -323,6 +331,13 @@ class Work(BaseModel):
     deliveries: list[Delivery] = []  # stage 3
     broadcasts: list[Batch] = []  # stage 4
     commands: list[Command] = []  # stage 5
+
+    @model_serializer(mode="wrap")
+    def legacy_optional_fields(self, handler):
+        result = handler(self)
+        if self.chat_announcements is None:
+            result.pop("chat_announcements", None)
+        return result
 
 
 class Accepted(BaseModel):
@@ -335,7 +350,7 @@ class Accepted(BaseModel):
 # ── Service routes ──
 
 @service_router.get("/work", response_model=Work)
-def work(limit: int = Query(50, ge=1, le=100)):
+def work(limit: int = Query(50, ge=1, le=100), features: str = Query("", max_length=500)):
     """Stage 5 first: one SELECT of the pause and of whether a command is open, the commands
     themselves only when one is. While paused, nothing else. Then the due VK deliveries
     (stage 3) and batches of broadcasts (stage 4): an idle poll is three SELECTs, each over
@@ -346,7 +361,7 @@ def work(limit: int = Query(50, ge=1, le=100)):
     if paused:
         return Work(server_time=stamp(now), paused=True, commands=commands)
     return Work(server_time=stamp(now), deliveries=due_deliveries(limit, now), broadcasts=due_batches(now),
-                commands=commands)
+                commands=commands, chat_announcements=__import__("task_chat").due_work(limit, now) if "chat_announcements_v1" in features.split(",") else None)
 
 
 @service_router.post("/report", response_model=Accepted)
@@ -378,6 +393,8 @@ def store(payload, now):
     changed ones; hourly the commands add three: expiry, outputs over 24 hours, retention.
     """
     with db._session() as s:
+        if payload.chat_results:
+            __import__("task_chat").validate_results(s, payload.chat_results)
         status = s.get(BotStatusORM, 1)
         if status is not None and status.report_id == payload.report_id:
             return True
@@ -389,9 +406,16 @@ def store(payload, now):
             heartbeat = payload.heartbeat
             status.started_at = stamp(heartbeat.started_at)
             # Without `updates` (a bot before stage 5, or one too big) the heartbeat is stored as before.
-            heartbeat = heartbeat.model_dump(mode="json", exclude={"updates"} if heartbeat.updates is None else None)
+            excluded = ({"updates"} if heartbeat.updates is None else set()) | ({"features"} if "features" not in heartbeat.model_fields_set else set())
+            heartbeat = heartbeat.model_dump(mode="json", exclude=excluded)
             status.heartbeat_json = json.dumps(heartbeat, ensure_ascii=False)
             status.updated_at = stamp(now)
+        if payload.chat_results:
+            __import__("task_chat").apply_results(s, payload.chat_results, now)
+        if payload.chat_observations:
+            __import__("task_chat").apply_observations(s, payload.chat_observations, now)
+        if payload.heartbeat and "chat_announcements_v1" in payload.heartbeat.features:
+            __import__("task_chat").sweep(s, now)
         added = merge_errors(s, payload.errors) if payload.errors else False
         if payload.vk_events or payload.tokens:
             apply_events(s, payload.vk_events, payload.tokens, now)
@@ -422,6 +446,8 @@ def store(payload, now):
                       .values(state="expired", updated_at=now.isoformat()), execution_options=plain)
             expire_batches(s, now)
             clean_commands(s, now)
+            if "chat_announcements_v1" in json.loads(status.heartbeat_json or "{}").get("features", []):
+                __import__("task_chat").clean(s, now)
         s.commit()
     HELD.discard(held)
     EMPTY.discard(empty)
@@ -1209,3 +1235,7 @@ def register_routes(router):
         if cur.is_service:
             raise NotFound(DISABLED, "bot_api_disabled")
         return issue_code(cur.user_id, utcnow())
+
+
+from task_chat import register_service_routes as register_chat_service_routes
+register_chat_service_routes(service_router)

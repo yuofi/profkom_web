@@ -54,11 +54,11 @@ def _config(session):
     return session.get(SupportConfigORM, 1)
 
 
-def _leaders(session):
+def _leaders(session, current_only=False):
     config = _config(session)
     meta = session.get(BlockMetaORM, config.block_id) if config and config.block_id else None
     block = session.get(BlockORM, meta.legacy_name) if meta else None
-    if not block or not block.master_user_id:
+    if not block or not block.master_user_id or (current_only and meta.archived_at):
         return set()
     result = {block.master_user_id}
     master = session.query(RoleAssignmentORM).filter_by(scope_kind="block", scope_id=block.name, role="master", user_id=block.master_user_id).first()
@@ -108,7 +108,7 @@ def context(uid):
     with db._session() as session:
         config = _config(session)
         system_editor = _system_editor(uid)
-        manager = uid in _leaders(session) or system_editor
+        manager = uid in _leaders(session,current_only=True) or system_editor
         return dict(configured=bool(config and config.queue_id), revision=config.revision if config else 1,
                     block_id=config.block_id if config else None, queue_id=config.queue_id if config else None,
                     can_configure=system_editor, can_manage_staff=manager, can_triage=is_staff(session, uid),
@@ -251,6 +251,8 @@ def configure(uid, payload):
         meta = session.get(BlockMetaORM, payload.block_id)
         if not meta:
             raise InvalidInput("Choose an existing block by ID")
+        from block_lifecycle import require_active
+        require_active(session,meta.block_id)
         config = _config(session)
         if not config:
             config = SupportConfigORM(config_id=1, revision=1)
@@ -285,7 +287,7 @@ def set_staff(uid, payload):
         config = _config(session)
         if not config:
             raise InvalidInput("Configure website support first")
-        if uid not in _leaders(session) and not _system_editor(uid):
+        if uid not in _leaders(session,current_only=True) and not _system_editor(uid):
             raise Forbidden("Only support leaders may manage support staff")
         version(config, payload.expected_revision)
         selected = set(payload.user_ids)
@@ -308,12 +310,21 @@ def set_staff(uid, payload):
     return context(uid)
 
 
+def _accepts_reports(session, config=None):
+    config = config or _config(session)
+    if not config or not config.queue_id or not config.block_id:
+        return False
+    meta = session.get(BlockMetaORM,config.block_id)
+    queue = session.get(TaskQueueORM,config.queue_id)
+    return bool(meta and not meta.archived_at and queue)
+
+
 def _task_for_report(session, report):
     if report.task_id:
         return
     config = _config(session)
     queue = session.get(TaskQueueORM, config.queue_id) if config and config.queue_id else None
-    if not queue:
+    if not queue or not _accepts_reports(session,config):
         return
     creator = report.user_id
     if creator is None:
@@ -348,7 +359,7 @@ def _outbox_due(session):
     return bool(
         session.query(FeedbackORM.report_id).filter(FeedbackORM.diagnostics_expires_at <= cutoff, or_(
             FeedbackORM.diagnostics_json.isnot(None), FeedbackORM.screenshot.isnot(None), FeedbackORM.contact.isnot(None))).first()
-        or session.query(FeedbackORM.report_id).filter_by(state="pending").first()
+        or (_accepts_reports(session) and session.query(FeedbackORM.report_id).filter_by(state="pending").first())
         or session.query(FeedbackRateORM.key).filter(FeedbackRateORM.window < int(now().timestamp()) // 60 - 1440).first())
 
 

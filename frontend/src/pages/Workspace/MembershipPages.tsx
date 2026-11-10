@@ -36,6 +36,8 @@ import { DeputiesForm, Leaders } from "./EventLeaders";
 import { OrganizationTree } from "./OrganizationTree";
 import { BlockHr } from "./BlockHr";
 import { TrackerTaskDialog } from "./TrackerTaskDialog";
+import { TaskChatSettingsAction } from "./TaskChatSettings";
+import { BlockSettingsAction, BlockDeletionStatus, CreateBlockAction } from "./BlockSettings";
 import { UnsavedChangesScope } from "../../components/Workspace/UnsavedChanges";
 import { userMessage } from "../../utils/api/messages";
 import { botLinkLabels } from "../../components/Workspace/botLink";
@@ -78,7 +80,7 @@ export function BlocksPage() {
       title="Блоки"
       description="Структура Профкома: руководство, мастера блоков и участники."
       actions={
-        <RouteLink to="/blocks/requests">{can(session, "view_block_requests") ? "Заявки в блоки" : "Мои заявки и решения"}</RouteLink>
+        <div className={s.row}>{can(session, "create_block") && <CreateBlockAction />}<RouteLink to="/blocks/requests">{can(session, "view_block_requests") ? "Заявки в блоки" : "Мои заявки и решения"}</RouteLink></div>
       }
     >
       <QueryState keepDataOnError={ready}
@@ -127,6 +129,8 @@ export function BlockPage() {
   // The block's own actions stand in one row under its name, as on a subevent page (D-05).
   const nav = b && (
     <div className={`${s.row} ${m.blockNav}`} role="group" aria-label="Действия блока">
+      {!b.archived_at && (can(b, "rename_block") || can(b, "edit_block") || can(b, "start_block_deletion")) && <BlockSettingsAction block={b} />}
+      {can(b, "manage_chat") && <TaskChatSettingsAction scope={{ kind: "block", id: b.block_id }} />}
       {canViewTracker && (
         <RouteLink
           to={`/tasks?scope_kind=block&scope_id=${encodeURIComponent(id)}`}
@@ -187,6 +191,7 @@ export function BlockPage() {
         loading={query.isLoading} error={query.error}>
         {b && (
           <div className={s.stack}>
+            <BlockDeletionStatus block={b} />
             {/* The description, with its form a click away; a block without one and without the
                 right to write it has no card at all (D-05). */}
             {(described || can(b, "edit_block")) && (

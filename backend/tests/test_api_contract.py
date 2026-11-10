@@ -38,6 +38,20 @@ from database import db
 #  не будучи ни разу проверенным на «а спросит ли он токен».
 #
 API_ROUTES: tuple[tuple[str, str], ...] = (
+    ('POST', '/api/blocks/{block_id}/deletion-request'),
+    ('POST', '/api/blocks/{block_id}/deletion-request/approve'),
+    ('POST', '/api/blocks/{block_id}/deletion-request/cancel'),
+
+    ('GET', '/api/scopes/{kind}/{scope_id}/chat'),
+    ('POST', '/api/scopes/{kind}/{scope_id}/chat/link-code'),
+    ('DELETE', '/api/scopes/{kind}/{scope_id}/chat'),
+    ('GET', '/api/tasks/chat-context'),
+    ('POST', '/api/tasks/{task_id}/chat-announcement/retry'),
+    ('POST', '/api/bot/v1/chats/confirm'),
+    ('GET', '/api/bot/v1/chats'),
+    ('POST', '/api/bot/v1/chat-announcements/{job_id}/claim'),
+    ('POST', '/api/bot/v1/chat-announcements/{job_id}/authorize'),
+
     ('GET', '/api/participants/{user_id}/participation'),
     ('POST', '/api/events/{event_id}/close'),
     ('POST', '/api/events/{event_id}/reopen'),
@@ -315,6 +329,11 @@ PUBLIC_ROUTES: tuple[tuple[str,str], ...] = (
 # пользовательским JWT. Bearer — служебный токен, его SHA-256 задан BOT_API_TOKEN_SHA256;
 # проверка без обращения к БД. Без настройки — 404 bot_api_disabled, с чужим токеном — 401.
 SERVICE_ROUTES: tuple[tuple[str, str], ...] = (
+    ('POST', '/api/bot/v1/chats/confirm'),
+    ('GET', '/api/bot/v1/chats'),
+    ('POST', '/api/bot/v1/chat-announcements/{job_id}/claim'),
+    ('POST', '/api/bot/v1/chat-announcements/{job_id}/authorize'),
+
     ('GET', '/api/bot/v1/work'),
     ('POST', '/api/bot/v1/report'),
     ('POST', '/api/bot/v1/links/confirm'),

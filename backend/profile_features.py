@@ -226,7 +226,12 @@ def activity(session, person):
         stable = getattr(tenure, "scope_block_id", None)
         add(tenure.scope_kind, stable if tenure.scope_kind == "block" and stable else tenure.scope_id,
             tenure.role, tenure.started_at, tenure.ended_at, plain_label=tenure.scope_kind == "block" and not stable)
+    from block_lifecycle import archived_identities
+    archived = archived_identities(session)
     for role in session.query(RoleAssignmentORM).filter_by(user_id=person):
+        # Frozen scope ACL is not a current appointment; ended tenures above keep its history.
+        if role.scope_kind == "block" and role.scope_id in archived:
+            continue
         if role.scope_kind not in {"global", "block", "event", "subevent"}:
             continue
         if not any(t.scope_kind == role.scope_kind and t.scope_id == role.scope_id and t.role == role.role and t.ended_at is None for t in tenures):
@@ -287,7 +292,7 @@ def vk_on_by_default(session, person):
 
 
 def delivery_category(kind):
-    return "tracker" if kind.startswith("task_") else "applications" if kind.startswith(("registration_", "block_application", "block_request")) else "pgas" if kind.startswith("pgas_") else None
+    return "tracker" if kind.startswith("task_") else "applications" if kind.startswith(("registration_", "block_application", "block_request", "block_deletion_")) else "pgas" if kind.startswith("pgas_") else None
 
 
 def collect_delivery_event(session, recipient, kind, payload, event_key, preferences=None, user=None):

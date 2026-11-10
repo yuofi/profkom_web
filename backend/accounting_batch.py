@@ -19,6 +19,8 @@ import access
 def _load(session, task_id, uid, write=False):
     task=session.get(TaskORM,task_id)
     if not task or not db.can_read_task(uid,task,session):raise NotFound('Task not found')
+    from task_seasons import require_season
+    require_season(task)
     season=session.get(SeasonORM,task.season_id)
     if not season or task.scope_kind=='queue':raise InvalidInput('Bind the queue to an accounting scope first','accounting_scope_required')
     meta=session.query(TaskTrackerORM).filter_by(task_id=task_id).first()

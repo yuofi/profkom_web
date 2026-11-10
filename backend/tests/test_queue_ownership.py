@@ -198,3 +198,31 @@ def test_bulk_account_revocation_ignores_stale_identity_map(client,work):
     result=get(client,q,w['master'])
     assert result['owner']['user_id']==w['master'].user_id
     assert len(audits(q['queue_id']))==1
+
+
+def test_archived_hr_is_not_a_global_successor_but_keeps_own_historical_scope(client, work, superuser, make_user):
+    from domain_models import BlockMetaORM
+    from datetime import datetime, timezone
+    hr=hr_master(make_user)
+    independent=make(client,work,scope=False,private=True)
+    with db.atomic(),db._session() as session:
+        session.query(BlockMetaORM).filter_by(legacy_name='Configured HR').one().archived_at=datetime.now(timezone.utc).isoformat()
+    db.update_user(work['member'].user_id,banned=True)
+    result=get(client,independent,superuser)
+    assert result['owner']['user_id']==superuser.user_id
+    assert audits(independent['queue_id'])[-1]['new']['recovery_tier']=='chair'
+    assert client.get('/api/task-queues/'+independent['queue_id'],headers=hr.headers).status_code==403
+
+
+def test_archived_hr_reconciles_existing_foreign_scoped_owner_at_commit(client, work, superuser, make_user):
+    from domain_models import BlockMetaORM
+    from datetime import datetime, timezone
+    hr=hr_master(make_user)
+    queue=make(client,work,owner=hr,private=True)
+    assert get(client,queue,hr)['owner']['user_id']==hr.user_id
+    with db.atomic(),db._session() as session:
+        session.query(BlockMetaORM).filter_by(legacy_name='Configured HR').one().archived_at=datetime.now(timezone.utc).isoformat()
+    result=get(client,queue,superuser)
+    assert result['owner']['user_id']==work['master'].user_id
+    assert audits(queue['queue_id'])[-1]['new']['recovery_tier']=='block_master'
+    assert client.get('/api/task-queues/'+queue['queue_id'],headers=hr.headers).status_code==403

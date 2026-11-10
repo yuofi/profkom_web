@@ -58,6 +58,8 @@ assert str(_TMP_DB) in database_module.DATABASE_URL, (
 )
 
 TABLES = (
+    "block_deletion_requests",
+    "task_chat_parts", "task_chat_announcements", "scope_chat_attempts", "scope_chat_codes", "scope_chat_bindings",
     "service_login_state", "service_login_throttle",
     "broadcast_recipients", "broadcast_batches", "broadcasts",
     "bot_commands", "bot_link_codes", "bot_links", "bot_errors", "bot_status",

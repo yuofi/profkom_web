@@ -204,7 +204,15 @@ def _card_facts(s):
                 guides[block_id] = rows[0][1]
     except ImportError:
         pass
-    return dict(metas=metas, members=members, guides=guides,
+    from domain_models import BlockDeletionRequestORM
+    deletion_ids = [meta.deletion_request_id for meta in metas.values() if meta.deletion_request_id]
+    deletions = {row.request_id:row for row in s.query(BlockDeletionRequestORM).filter(
+        BlockDeletionRequestORM.request_id.in_(deletion_ids))} if deletion_ids else {}
+    approvers = {uid for row in deletions.values() for uid in (row.first_user_id,row.second_user_id) if uid}
+    if approvers:
+        from sqlalchemy.orm import joinedload
+        list(s.query(UserORM).options(joinedload(UserORM.contact)).filter(UserORM.user_id.in_(approvers)))
+    return dict(metas=metas, members=members, guides=guides, deletions=deletions,
                 users={row[0] for row in scalar_rows(s, UserORM, [UserORM.user_id])},
                 open_season=any(x.state == "open" for x in db.get_seasons()))
 
@@ -220,9 +228,12 @@ def card(s, b, uid, facts=None):
     leaders = _load_leaders(s, "block", b.name, "master")
     master = asdict(leaders[0]) if leaders else None
     if master:
-        master["capabilities"] = access.leader_caps(leaders[0], uid)
+        master["capabilities"] = [] if m.archived_at else access.leader_caps(leaders[0], uid)
     members = []
-    if facts is not None and reusable(s):
+    if m.archived_at:
+        historical = {member.user_id: member.category for member in s.query(MembershipORM).filter_by(block_id=m.block_id)}
+        rows = [(uid, historical.get(uid,"member")) for uid in json.loads(b.arr_of_human or "[]")]
+    elif facts is not None and reusable(s):
         rows = facts["members"].get(m.block_id, [])
     else:
         rows = [(mem.user_id, mem.category) for mem in s.query(MembershipORM).filter_by(block_id=m.block_id, left_at=None)]
@@ -245,7 +256,7 @@ def card(s, b, uid, facts=None):
         guide_id = guide_id or block_material_id(s, m.block_id)
     except ImportError:
         pass
-    return dict(
+    result = dict(
         block_id=m.block_id,
         name=b.name,
         is_hr=b.is_hr,
@@ -259,12 +270,15 @@ def card(s, b, uid, facts=None):
         revision=m.revision,
         capabilities=sorted(set(caps)),
     )
+    from block_lifecycle import add_card_fields
+    return add_card_fields(s,m,uid,result, facts["deletions"].get(m.deletion_request_id) if facts else None)
 
 
-def blocks_for(uid):
+def blocks_for(uid, include_archived=False):
     with db._session() as s:
         facts = _card_facts(s)
-        result = [card(s, b, uid, facts) for b in s.query(BlockORM).order_by(BlockORM.name)]
+        result = [card(s, b, uid, facts) for b in s.query(BlockORM).order_by(BlockORM.name)
+                  if include_archived or not ((facts["metas"].get(b.name) if facts else None) or meta_for(s,b.name,persist=False)).archived_at]
         s.commit()
         return result
 
@@ -281,6 +295,7 @@ def catalog(uid):
         result = []
         for b in s.query(BlockORM).order_by(BlockORM.name):
             m = (metas.get(b.name) if reusable(s) else None) or meta_for(s, b.name)
+            if m.archived_at: continue
             leaders = _load_leaders(s, "block", b.name, "master")
             result.append(dict(block_id=m.block_id, name=b.name, is_hr=b.is_hr, avatar_url=block_avatar_url(s, m),
                                master=dict(user=asdict(leaders[0].user)) if leaders else None))
@@ -402,6 +417,7 @@ def _visible_requests(s, uid, query):
     everything = access.allowed(uid, "block_request.view_all") or any(
         access.allowed(uid, "block_request.view_as_hr", "block", b.name)
         for b in s.query(BlockORM).filter(BlockORM.is_hr == True)  # noqa: E712
+        if not __import__("block_lifecycle").is_archived(s,b.name)
     )
     return [
         r for r in query
@@ -456,6 +472,7 @@ def can_view_request(s, r, uid):
     if any(
         access.allowed(uid, "block_request.view_as_hr", "block", b.name)
         for b in s.query(BlockORM).filter(BlockORM.is_hr == True)  # noqa: E712
+        if not __import__("block_lifecycle").is_archived(s,b.name)
     ):
         return True
     return access.allowed(uid, "block.review_block_stage", "block", legacy_name(r.block_id))
@@ -463,6 +480,8 @@ def can_view_request(s, r, uid):
 
 def set_membership(s, uid, bid, joined, actor, reason):
     name = legacy_name(bid)
+    from block_lifecycle import require_active
+    require_active(s,name)
     b = s.get(BlockORM, name)
     m = meta_for(s, name)
     seed_members(s, b, m)
@@ -547,6 +566,7 @@ def leave(id, uid, actor):
                  "block_left", payload, event + ":block", actor)
             recipients = set()
             for hr in s.query(BlockORM).filter_by(is_hr=True):
+                if __import__("block_lifecycle").is_archived(s,hr.name): continue
                 for leader in _load_leaders(s, "block", hr.name, "master"):
                     recipients.add(leader.user.user_id)
                     recipients.update(leader.deputy_user_ids)
@@ -584,6 +604,8 @@ def public_participation(uid, actor):
 def patch_block(id, payload, uid):
     with db._session() as s:
         name = legacy_name(id)
+        from block_lifecycle import require_active, validate_name
+        require_active(s,name)
         b = s.get(BlockORM, name)
         m = meta_for(s, name)
         if not access.allowed(uid, "block.edit", "block", name):
@@ -592,10 +614,8 @@ def patch_block(id, payload, uid):
             fail(403, "Only the chair and deputies can rename a block")
         version(m, payload.expected_revision)
         if payload.name is not None and payload.name != name:
-            new = payload.name.strip()
-            if not new or "/" in new:
-                fail(422, "Invalid name")
-            if s.get(BlockORM, new):
+            new = validate_name(payload.name)
+            if any(existing.casefold() == new.casefold() for existing, in s.query(BlockORM.name)):
                 fail(409, "Block name already exists", "name_taken")
             from accounts import rename_archived_block_scopes
             rename_archived_block_scopes(s, name, new, m.block_id)
@@ -688,6 +708,8 @@ def register_routes(router):
             fail(403, "The service account is a member of no block")  # owner, 2026-11-08
         with db._session() as s:
             name = legacy_name(payload.block_id)
+            from block_lifecycle import require_active
+            require_active(s,name)
             bid = meta_for(s, name).block_id
             seed_members(s, s.get(BlockORM, name), meta_for(s, name))
             if (
@@ -773,6 +795,8 @@ def register_routes(router):
             if r.state not in ("pending_hr", "pending_block"):
                 fail(409, "Application is terminal")
             name = legacy_name(r.block_id)
+            from block_lifecycle import require_active
+            require_active(s,name)
             b = s.get(BlockORM, name)
             old = r.state
             substitute = False

@@ -1,3 +1,5 @@
+import type { TaskChatAnnouncement } from "./taskChat.types";
+import type { BlockDeletionRequest } from "./blockLifecycle.types";
 /** API 1.3. Public, assessment-input and calculated DTOs are deliberately separate. */
 export interface Page<T> {
   items: T[];
@@ -381,6 +383,8 @@ export interface BlockRef {
   avatar_url?: string | null;
 }
 export interface Block extends Versioned, BlockRef {
+  archived_at?: string | null;
+  deletion_request?: BlockDeletionRequest | null;
   block_id: string;
   name: string;
   is_hr: boolean;
@@ -522,7 +526,7 @@ export interface TaskQueueSeason {
  *  open season; for an independent queue a planned or open one. */
 export interface TaskQueueCreation {
   available: boolean;
-  reason: "season_summarizing" | "season_closed" | "no_open_season" | "no_season" | "team_missing" | null;
+  reason: "season_summarizing" | "season_closed" | "no_open_season" | "no_season" | "team_missing" | "block_archived" | null;
 }
 export interface TaskQueueCatalog extends Page<TaskQueue> {
   can_create_queue?: boolean;
@@ -579,10 +583,13 @@ export interface TaskPlanning {
   task_type: TaskType; priority: TaskPriority; starts_at: string | null;
 }
 export interface TaskPublicPatch extends Partial<TaskPlanning> {
+  /** Initial season assignment for a block task; later moves use season corrections. */
+  season_id?: string | null;
   title?: string; description?: RichText; file_ids?: string[]; parent_task_id?: string | null;
   checklist?: TaskChecklistInput[];
 }
 export interface Task extends Versioned {
+  chat_announcement?: TaskChatAnnouncement | null;
   task_type?: TaskType;
   priority?: TaskPriority;
   starts_at?: string | null;
@@ -633,6 +640,8 @@ export interface TaskCreateAccess {
   can_create_task: boolean;
 }
 export interface TaskStatusChange extends Revision {
+  /** Atomically assign the first season when closing a block task. */
+  season_id?: string | null;
   status: TaskPublicStatus | AssignmentStatus;
   message?: RichText;
   text?: RichText;
@@ -647,7 +656,7 @@ export interface UnresolvedAssignment {
   assignment: Assignment;
   task_id: string;
   task_title: string;
-  season_id: string;
+  season_id: string | null;
   scope: ScopeRef;
   deadline_at: string | null;
   scope_title?: string;
@@ -949,7 +958,7 @@ export interface CalendarItem {
   status?: TaskPublicStatus | AssignmentStatus | null;
   event_id?: string | null;
   id: string;
-  season_id: string;
+  season_id: string | null;
   kind: "task_deadline" | "meeting" | "event";
   title: string;
   starts_at: string;
@@ -1014,13 +1023,14 @@ export interface ArchivedAccount {
   capabilities?: string[];
 }
 export interface TaskCreate {
+  chat_announcement?: { enabled: boolean; binding_revision: number } | null;
   task_type?: TaskType;
   priority?: TaskPriority;
   starts_at?: string | null;
   checklist?: TaskChecklistInput[];
   queue_id?: string;
   parent_task_id?: string | null;
-  season_id: string;
+  season_id?: string | null;
   scope?: ScopeRef;
   title: string;
   description: RichText;

@@ -450,6 +450,11 @@ def ops():
            lambda o, r: {"user_ids": [o.uid("mdeputy")], "expected_revision": BAD}, ok=(409,)),
         Op("B14", "PUT", lambda o: f"/role-assignments/{o.ids['ra_master_hr']}/deputies",
            lambda o, r: {"user_ids": [o.uid("hrdeputy")], "expected_revision": BAD}, ok=(409,)),
+        Op("BL1", "POST", lambda o: "/blocks", lambda o,r: {"name":"Integration IT"}, ok=(409,), cap=("S1","create_block")),
+        Op("BL2", "PATCH", lambda o:f"/blocks/{o.ids['it']}", lambda o,r: {"expected_revision":BAD,"name":"Another name"}, ok=(409,), cap=("B1","rename_block")),
+        Op("BL3", "POST", lambda o:f"/blocks/{o.ids['it']}/deletion-request", lambda o,r: {"expected_revision":BAD}, ok=(409,), cap=("B1","start_block_deletion")),
+        Op("BL4", "POST", lambda o:f"/blocks/{o.ids['it']}/deletion-request/approve", lambda o,r: {"expected_revision":BAD,"request_id":"synthetic"}, ok=(409,)),
+        Op("BL5", "POST", lambda o:f"/blocks/{o.ids['it']}/deletion-request/cancel", lambda o,r: {"expected_revision":BAD,"request_id":"synthetic"}, ok=(409,)),
         # Registrations, accounts, leadership
         Op("G1", "GET", lambda o: "/registrations", cap=("S1", "review_registrations")),
         Op("G2", "POST", lambda o: f"/registrations/{o.ids['pending']}/approve", lambda o, r: {"expected_revision": BAD}, ok=(409,)),
@@ -595,6 +600,7 @@ EXPECTED = {
     "M1": TACHKI | HRM | EVENT_LEAD | SUB_LEAD, "M2": TACHKI | EVENT_LEAD,
     "M3": TACHKI | HRM | EVENT_LEAD | SUB_TEAM, "M4": TACHKI | EVENT_LEAD | SUB_LEAD,
     "M5": TACHKI | EVENT_LEAD, "M6": TACHKI | EVENT_LEAD | SUB_LEAD,
+    "BL1": TACHKI, "BL2": TACHKI, "BL3": TACHKI, "BL4": TACHKI, "BL5": TACHKI,
     "B1": ALL, "B1h": ALL,
     # The HR deputy is an ordinary deputy of the HR block: its card, guide and queues (owner 2026-10-31, GL-09).
     "B2": TACHKI | IT_LEAD, "B3": TACHKI | HR_LEAD,
@@ -836,7 +842,7 @@ def test_home_page_lists_every_area_for_the_chair_deputies_and_hr_master(org, ro
 
 # Not rights questions: a state no one may act in (K19) and tasks whose assignee is the
 # actor itself (T1, T2), which the service account never is (422 unknown_user).
-SERVICE_REFUSED = {"K19", "T1", "T2"}
+SERVICE_REFUSED = {"K19", "T1", "T2", "BL3", "BL4", "BL5"}
 
 
 def test_the_service_account_passes_every_other_rights_check(org, monkeypatch):

@@ -28,6 +28,8 @@ def apply_bindings(bindings, actor_uid):
                 kind, source_id = item["source_kind"], item["source_id"]
                 if kind == "block":
                     source_id = legacy_name(source_id)
+                    from block_lifecycle import require_active
+                    require_active(session,source_id)
                 elif kind == "chair":
                     if source_id != "chair":
                         raise InvalidInput("The chair source ID must be chair")

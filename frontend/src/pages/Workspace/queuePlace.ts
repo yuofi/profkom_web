@@ -11,12 +11,13 @@ export function queueCreationNotice(queue: Pick<TaskQueue, "season" | "task_crea
     case "no_open_season": return `Сейчас нет открытого сезона — ${tail}`;
     case "no_season": return `Сейчас нет открытого или запланированного сезона — ${tail}`;
     case "team_missing": return `Команда этой очереди недоступна — ${tail}`;
+    case "block_archived": return `Блок удалён — ${tail} Прежние задачи и ККР сохранены.`;
     default: return `Сейчас ${tail}`;
   }
 }
 /** Only creation the server is known to refuse stops it; an older server says nothing. */
 export const queueTakesTasks = (queue: Pick<TaskQueue, "task_creation">) => queue.task_creation?.available !== false;
-const SHORT_REASONS: Record<NonNullable<TaskQueueCreation["reason"]>, string> = { season_summarizing: "сезон подводит итоги", season_closed: "сезон закрыт", no_open_season: "нет открытого сезона", no_season: "нет сезона", team_missing: "команда недоступна" };
+const SHORT_REASONS: Record<NonNullable<TaskQueueCreation["reason"]>, string> = { season_summarizing: "сезон подводит итоги", season_closed: "сезон закрыт", no_open_season: "нет открытого сезона", no_season: "нет сезона", team_missing: "команда недоступна", block_archived: "блок удалён" };
 /** The few words beside the disabled «Создать задачу» (owner 2026-11-08, В8, variant В); the full reason is queueCreationNotice. */
 export function queueCreationShort(queue: Pick<TaskQueue, "task_creation">) {
   const reason = queue.task_creation?.reason, short = reason ? SHORT_REASONS[reason] : null;

@@ -792,6 +792,19 @@ def _ensure_sqlite_block_avatar_column() -> None:
 _ensure_sqlite_block_avatar_column()
 
 
+def _ensure_sqlite_block_lifecycle_columns() -> None:
+    if engine.dialect.name != "sqlite":
+        return
+    with engine.begin() as conn:
+        names = {row[1] for row in conn.execute(text("PRAGMA table_info(block_metadata)"))}
+        for name in ("archived_at", "deletion_request_id"):
+            if name not in names:
+                conn.execute(text(f"ALTER TABLE block_metadata ADD COLUMN {name} VARCHAR"))
+
+
+_ensure_sqlite_block_lifecycle_columns()
+
+
 def _ensure_sqlite_block_hr_assignment_column() -> None:
     """A curator is an explicit account ID; legacy HR names never grant rights."""
     with engine.begin() as conn:
@@ -2299,6 +2312,8 @@ def _recalculate_assignment_contribution(session: Session, a: AssignmentORM, t: 
     if session.query(KkrControlEpicORM).filter_by(task_id=t.task_id).first():
         return  # administrative control tickets are never credited as performed work
     if a.status in ("accepted", "not_completed") and a.evaluation is not None:
+        from task_seasons import require_season
+        require_season(t)
         crit_dict = {}
         try:
             crit_dict = json.loads(t.criteria_json or "{}")
@@ -2979,7 +2994,9 @@ class Database:
             return new_blocks_raw
 
         old_blocks = set(_parse_blocks(u.blocks if u else (c.blocks if c else "")))
-        available_blocks = {b.name for b in session.query(BlockORM.name).all()}
+        from block_lifecycle import archived_identities
+        archived = archived_identities(session)
+        available_blocks = {b.name for b in session.query(BlockORM.name).all() if b.name not in archived}
         requested_blocks = set(_parse_blocks(new_blocks_raw))
         
         # Only keep blocks that exist in BlockORM
@@ -3001,6 +3018,7 @@ class Database:
                     b_orm.cnt_of_human = len(user_ids)
 
         for b_name in removed:
+            if b_name in archived: continue  # frozen historical roster, not current membership
             b_orm = session.get(BlockORM, b_name)
             if b_orm:
                 try:
@@ -3031,6 +3049,8 @@ class Database:
                 seed_members(session, b, meta_for(session, name))
 
     def _sync_users_for_block(self, session: Session, block_name: str, new_user_ids: list[int]):
+        from block_lifecycle import require_active
+        require_active(session, block_name)
         b = session.get(BlockORM, block_name)
         if not b: return
         
@@ -3380,7 +3400,8 @@ class Database:
             )
             for (b_name,) in mb:
                 blocks.add(b_name)
-            return list(blocks)
+            from block_lifecycle import archived_identities
+            return list(blocks - archived_identities(session))
 
     @memoized("database.master_blocks")
     def get_user_master_block_names(self, user_id: int) -> list[str]:
@@ -3392,7 +3413,9 @@ class Database:
                 .all()
             )
             if master_blocks:
-                return [b_name for (b_name,) in master_blocks]
+                from block_lifecycle import archived_identities
+                archived = archived_identities(session)
+                return [b_name for (b_name,) in master_blocks if b_name not in archived]
             return []
 
     # --- ПГАС ---
@@ -3502,6 +3525,8 @@ class Database:
 
     def update_block(self, name: str, **fields) -> Optional[BlockDC]:
         with self._session() as session:
+            from block_lifecycle import require_active
+            require_active(session, name)
             b = session.get(BlockORM, name)
             if not b:
                 return None
@@ -3920,22 +3945,19 @@ class Database:
 
     @memoized("database.is_hr_master", copy_result=False)
     def is_hr_master(self, user_id: int) -> bool:
+        from block_lifecycle import archived_identities
         with self._session() as session:
-            count = (
-                session.query(BlockORM)
-                .filter(
-                    BlockORM.is_hr == True,
-                    BlockORM.master_user_id == user_id,
-                )
-                .count()
-            )
-            return count > 0
+            archived = archived_identities(session)
+            return any(block.name not in archived for block in session.query(BlockORM).filter(
+                BlockORM.is_hr == True, BlockORM.master_user_id == user_id))
 
     @memoized("database.assignments")
     def get_user_assignments(self, user_id: int) -> list[RoleAssignmentDC]:
         with self._session() as session:
             rows = session.query(RoleAssignmentORM).filter(RoleAssignmentORM.user_id == user_id).all()
-            assignments = [_role_assignment_orm_to_dc(r) for r in rows]
+            from block_lifecycle import archived_identities
+            archived = archived_identities(session)
+            assignments = [_role_assignment_orm_to_dc(r) for r in rows if not (r.scope_kind == "block" and r.scope_id in archived)]
             existing_roles = {(a.role, a.scope_kind, a.scope_id) for a in assignments}
 
             if self.is_chair(user_id) and ("chair", "global", None) not in existing_roles:
@@ -3965,6 +3987,7 @@ class Database:
 
             m_blocks = session.query(BlockORM.name).filter(BlockORM.master_user_id == user_id).all()
             for (b_name,) in m_blocks:
+                if b_name in archived: continue
                 if ("master", "block", b_name) not in existing_roles:
                     assignments.append(
                         RoleAssignmentDC(
@@ -5011,6 +5034,8 @@ class Database:
 
     def set_block_leader(self, block_name: str, user_id: int, expected_revision: Optional[int] = None) -> BlockDC:
         with self._session() as session:
+            from block_lifecycle import require_active
+            require_active(session, block_name)
             b = session.get(BlockORM, block_name)
             if not b:
                 raise NotFound(f"Block '{block_name}' not found")
@@ -5055,6 +5080,9 @@ class Database:
             assignment = session.get(RoleAssignmentORM, role_assignment_id)
             if not assignment:
                 raise NotFound("Role assignment not found")
+            if assignment.scope_kind == "block":
+                from block_lifecycle import require_active
+                require_active(session, assignment.scope_id)
             if assignment.role not in ("master","event_leader","subevent_leader"):raise InvalidInput("Only principal leaders can have deputies")
             if assignment.scope_kind in ("event","subevent"):
                 ev=session.get(EventORM,assignment.scope_id) if assignment.scope_kind=="event" else session.get(EventORM,session.get(SubeventORM,assignment.scope_id).event_id)
@@ -5402,7 +5430,7 @@ class Database:
 
     def create_task(
         self,
-        season_id: str,
+        season_id: Optional[str],
         scope_kind: str,
         scope_id: str,
         title: str,
@@ -5418,9 +5446,6 @@ class Database:
         planning: Optional[dict] = None,
     ) -> TaskPublicDC:
         with self._session() as session:
-            season = session.get(SeasonORM, season_id)
-            if not season:
-                raise NotFound("Season not found")
             from task_queues import default_queue,can_read,validate_parent
             queue=session.get(TaskQueueORM,queue_id) if queue_id else None
             if queue_id and (not queue or queue.deleted_at):raise NotFound("Queue not found")
@@ -5428,12 +5453,17 @@ class Database:
                 if not can_read(session,queue,created_by_user_id):raise Forbidden("Queue access is required")
                 if scope_kind and (scope_kind!=queue.scope_kind or scope_id!=queue.scope_id):raise InvalidInput("Queue scope mismatch")
                 scope_kind,scope_id=queue.scope_kind,queue.scope_id
+            season = session.get(SeasonORM, season_id) if season_id is not None else None
+            if season is None and (season_id is not None or scope_kind != "block"):
+                raise NotFound("Season not found")
             if scope_kind == "block":
                 block = session.get(BlockORM, scope_id)
                 if not block:
                     raise NotFound("Block not found")
-                if season.state != "open":
-                    raise Conflict("Block tasks can only be created in an open season")
+                from block_lifecycle import require_active
+                require_active(session, scope_id)
+                if season is not None and season.state not in ("planned", "open", "summarizing"):
+                    raise season_closed("Block tasks cannot be created in a closed season")
             elif scope_kind == "subevent":
                 sub = session.get(SubeventORM, scope_id)
                 if not sub:
@@ -5467,14 +5497,15 @@ class Database:
             if queue.scope_kind!=scope_kind or queue.scope_id!=scope_id:raise InvalidInput("Queue scope mismatch")
             validate_parent(session,None,season_id,parent_task_id,created_by_user_id)
 
-            from validation import period, timestamp, hours as check_hours
+            from validation import timestamp, hours as check_hours
+            from task_seasons import period
             if deadline_at is not None:
                 deadline_at=timestamp(deadline_at)
-                period(datetime.now(timezone.utc).isoformat(),deadline_at,season.ends_at,start=None)
+                period(datetime.now(timezone.utc).isoformat(),deadline_at,season,start=None)
             if len({a.get("user_id") for a in assignees})!=len(assignees):raise InvalidInput("Duplicate assignees", "duplicate_users")
             for item in assignees:check_hours(item.get("hours",0))
             import access
-            can_set_inputs=scope_kind!="queue" and access.allowed(created_by_user_id,"task.inputs.edit",scope_kind,scope_id,state=season.state)
+            can_set_inputs=scope_kind!="queue" and access.allowed(created_by_user_id,"task.inputs.edit",scope_kind,scope_id,state=season.state if season else None)
             if not can_set_inputs and (any(item.get("hours",0) not in (0,None) for item in assignees) or any((criteria_dict or {}).values())):
                 raise Forbidden("Private accounting inputs require the original accounting permission")
 
@@ -5643,7 +5674,7 @@ class Database:
             t = session.get(TaskORM, task_id)
             if not t or not self.can_read_task(user_id,t,session):
                 raise NotFound("Task not found")  # FIX_PLAN 0.1: no hint that the task exists
-            season = session.get(SeasonORM, t.season_id)
+            season = session.get(SeasonORM, t.season_id) if t.season_id is not None else None
             from tracker import can_edit_description,metadata,activity
             if title is not None or parent_supplied or description is None:
                 self.require_task_right(user_id, "task.edit", t, season and season.state,
@@ -5838,7 +5869,7 @@ class Database:
             if not t:
                 raise NotFound("Task not found")
 
-            season = session.get(SeasonORM, t.season_id)
+            season = session.get(SeasonORM, t.season_id) if t.season_id is not None else None
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
                                     "Forbidden: cannot accept assignment for this scope",
                                     "Forbidden: only the chair, deputies and HR master can accept/evaluate in a closed season")
@@ -5893,7 +5924,7 @@ class Database:
             if not t:
                 raise NotFound("Task not found")
 
-            season = session.get(SeasonORM, t.season_id)
+            season = session.get(SeasonORM, t.season_id) if t.season_id is not None else None
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
                                     "Forbidden: cannot review assignment for this scope",
                                     "Forbidden: only the chair, deputies and HR master can request revision in a closed season")
@@ -5948,7 +5979,7 @@ class Database:
             if not t:
                 raise NotFound("Task not found")
 
-            season = session.get(SeasonORM, t.season_id)
+            season = session.get(SeasonORM, t.season_id) if t.season_id is not None else None
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
                                     "Forbidden: cannot manage assignment for this scope",
                                     "Forbidden: only the chair, deputies and HR master can mark not completed in a closed season")
@@ -6004,7 +6035,7 @@ class Database:
             if not t:
                 raise NotFound("Task not found")
 
-            season = session.get(SeasonORM, t.season_id)
+            season = session.get(SeasonORM, t.season_id) if t.season_id is not None else None
             self.require_task_right(reviewer_user_id, "task.review", t, season and season.state,
                                     "Forbidden: cannot cancel assignment for this scope",
                                     "Forbidden: only the chair, deputies and HR master can cancel assignment in a closed season")
@@ -6166,7 +6197,7 @@ class Database:
             if not t:
                 raise NotFound("Task not found")
 
-            season = session.get(SeasonORM, t.season_id)
+            season = session.get(SeasonORM, t.season_id) if t.season_id is not None else None
             self.require_task_right(manager_user_id, "task.add_assignment", t, season and season.state,
                                     "Forbidden: cannot manage assignments for this scope",
                                     "Forbidden: only the chair, deputies and HR master can reassign in a closed season")
@@ -6184,6 +6215,8 @@ class Database:
                 raise InvalidInput("previous_outcome must be 'cancelled' or 'not_completed'")
 
             if previous_outcome == "not_completed":
+                from task_seasons import require_season
+                require_season(t)
                 if evaluation not in (0.0, -1.0):
                     raise InvalidInput("evaluation of 0 or -1 is required when outcome is not_completed")
             elif previous_outcome == "cancelled":
@@ -6330,12 +6363,13 @@ class Database:
             t = session.get(TaskORM, task_id)
             if not t:
                 raise NotFound("Task not found")
-            season = session.get(SeasonORM, t.season_id)
+            season = session.get(SeasonORM, t.season_id) if t.season_id is not None else None
             self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                     "Forbidden: cannot edit task assessment inputs",
                                     "Forbidden: only the chair, deputies and HR master can edit assessment inputs in a closed season")
             from participation import dt
-            from validation import period, timestamp
+            from validation import timestamp
+            from task_seasons import period
             if assigned_at is not None:assigned_at=timestamp(assigned_at)
             if deadline_at is not None:deadline_at=timestamp(deadline_at)
             self.require_dates_right(user_id, t, season and season.state, ((assigned_at, t.assigned_at), (deadline_at, t.deadline_at)))
@@ -6348,7 +6382,7 @@ class Database:
 
             final_deadline = deadline_at or t.deadline_at
             if final_deadline is not None:
-                period(assigned_at or t.assigned_at, final_deadline, season.ends_at, start_moved=assigned_at is not None and deadline_at is None)
+                period(assigned_at or t.assigned_at, final_deadline, season, start_moved=assigned_at is not None and deadline_at is None)
             if meta.starts_at and final_deadline is not None and dt(meta.starts_at)>dt(final_deadline):
                 raise InvalidInput("Planned start must not be later than the deadline")
             old_assigned = t.assigned_at
@@ -6423,7 +6457,7 @@ class Database:
             t = session.get(TaskORM, a.task_id)
             if not t:
                 raise NotFound("Task not found")
-            season = session.get(SeasonORM, t.season_id)
+            season = session.get(SeasonORM, t.season_id) if t.season_id is not None else None
             self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                     "Forbidden: cannot edit assignment assessment inputs",
                                     "Forbidden: only the chair, deputies and HR master can edit assessment inputs in a closed season")
@@ -6516,7 +6550,7 @@ class Database:
                 t = session.get(TaskORM, a.task_id)
                 if not t:
                     raise NotFound(f"Task for assignment {aid} not found")
-                season = session.get(SeasonORM, t.season_id)
+                season = session.get(SeasonORM, t.season_id) if t.season_id is not None else None
                 self.require_task_right(user_id, "task.inputs.edit", t, season and season.state,
                                         f"Forbidden: cannot edit assessment inputs for assignment {aid}",
                                         "Forbidden: only the chair, deputies and HR master can edit assessment inputs in a closed season")

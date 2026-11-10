@@ -202,27 +202,15 @@ class PgasPeriodIn(Command):
     half_year: Literal[1, 2]
 
 
-class BlockIn(BaseModel):
-    name: str = Field(..., min_length=1)
-    master: str
-    hr: str = ""
-    cnt_of_human: int = 0
-    arr_of_human: list[int] = Field(default_factory=list)
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("Block name cannot be empty")
-        if "/" in v:
-            raise ValueError("Block name cannot contain '/'")
-        return v
+from block_lifecycle import CreateBlock as BlockIn
 
 
 from membership import BlockPatch as BlockUpdate
 
 
 class BlockOut(BaseModel):
+    archived_at: Optional[str] = None
+    deletion_request: Optional[dict] = None
     block_id: str
     name: str
     is_hr: bool
@@ -655,10 +643,13 @@ class TaskChecklistIn(Command):
     checked: bool = False
 
 
+from task_chat import Intent as ChatAnnouncementIntent
+
+
 class TaskCreateIn(Command):
     queue_id: Optional[str] = None
     parent_task_id: Optional[str] = None
-    season_id: str
+    season_id: Optional[str] = None
     scope: Optional[dict] = None
     title: str
     description: Union[RichTextSchema, str] = ""
@@ -671,6 +662,7 @@ class TaskCreateIn(Command):
     priority: Literal["low", "normal", "high", "urgent"] = "normal"
     starts_at: Optional[str] = None
     checklist: list[TaskChecklistIn] = Field(default_factory=list, max_length=200)
+    chat_announcement: Optional[ChatAnnouncementIntent] = None
     # GL-07: a UUID; a repeat with the same key returns the first task, other data is 409.
     idempotency_key: Optional[str] = None
 
@@ -697,6 +689,7 @@ class TaskResultIn(Command):
 class TaskPatchIn(Command):
     parent_task_id: Optional[str] = None
     expected_revision: int
+    season_id: Optional[str] = None
     title: Optional[str] = None
     description: Optional[Union[RichTextSchema, str]] = None
     file_ids: Optional[list[str]] = None
@@ -758,6 +751,7 @@ class TaskEvaluationIn(Command):
 
 class TaskStatusIn(Command):
     expected_revision: int
+    season_id: Optional[str] = None
     status: Literal["open", "in_progress", "completed", "closed", "assigned", "help_required", "submitted", "accepted", "needs_revision", "not_completed", "cancelled"]
     text: Union[RichTextSchema, str] = ""
     message: Optional[Union[RichTextSchema, str]] = None
@@ -798,6 +792,7 @@ class TaskHistoryOut(BaseModel):
 
 
 class TaskPublicOut(BaseModel):
+    chat_announcement: Optional[dict] = None
     task_id: str
     season_id: Optional[str]
     scope: dict
@@ -839,7 +834,7 @@ class UnresolvedAssignmentOut(BaseModel):
     assignment: AssignmentPublicOut
     task_id: str
     task_title: str
-    season_id: str
+    season_id: Optional[str]
     scope: dict
     deadline_at: Optional[str]
     scope_title: str = ""
@@ -1310,7 +1305,7 @@ class CalendarItemOut(BaseModel):
     status: Optional[str] = None
     event_id: Optional[str] = None
     id: str
-    season_id: str
+    season_id: Optional[str]
     kind: str
     title: str
     starts_at: str
@@ -1828,9 +1823,9 @@ def delete_pgas(entry_id: int, cur: User = Depends(require_pgas_admin)):
 # ═══════════════════════════════════════════════════════════
 
 @router.get("/blocks", response_model=List[BlockOut])
-def list_blocks():
+def list_blocks(include_archived: bool = False):
     from membership import blocks_for
-    return blocks_for(access.actor_id.get())
+    return blocks_for(access.actor_id.get(), include_archived=include_archived)
 
 
 @router.get("/blocks/catalog")
@@ -1841,8 +1836,9 @@ def list_block_catalog():
 
 
 @router.post("/blocks", response_model=BlockOut)
-def create_block(payload: BlockIn, cur: User = Depends(require_superuser)):
-    raise HTTPException(409,"Existing blocks are maintained; creating new blocks is disabled")
+def create_block(payload: BlockIn, cur: User = Depends(get_current_user)):
+    from block_lifecycle import create
+    return create(payload,cur.user_id)
 
 
 @router.patch("/blocks/{block_name}", response_model=BlockOut)
@@ -2902,6 +2898,10 @@ def correct_season(payload: SeasonCorrectionIn, cur: User = Depends(get_current_
 #  BE-03: TASKS & ASSIGNMENTS ENDPOINTS
 # ═══════════════════════════════════════════════════════════
 
+import task_chat
+task_chat.register_routes(router)
+
+
 @router.get("/task-queues")
 def task_queue_catalog(cursor: Optional[str] = None,cur: User = Depends(get_current_user)):
     import task_queues
@@ -3004,7 +3004,12 @@ def create_task(payload: TaskCreateIn, cur: User = Depends(get_current_user)):
     )
     with db.atomic(), db._session() as session:
         request_keys.remember(session, session.get(database_module.TaskORM, t.task_id), payload.idempotency_key, request_hash)
-    return _to_task_public_out(t)
+        announcement = None
+        if payload.chat_announcement and payload.chat_announcement.enabled:
+            announcement = task_chat.enqueue(session, t.task_id, cur.user_id, payload.chat_announcement, [a.user_id for a in payload.assignees])
+    result = _to_task_public_out(t)
+    result.chat_announcement = announcement
+    return result
 
 
 @router.get("/tasks")
@@ -3061,7 +3066,9 @@ def get_task(task_id: str, cur: User = Depends(get_current_user)):
     t = db.get_task(task_id, cur.user_id)
     if not t:
         raise HTTPException(404, "Task not found")
-    return _to_task_public_out(t)
+    result = _to_task_public_out(t)
+    result.chat_announcement = task_chat.task_summary(task_id, cur.user_id)
+    return result
 
 
 @router.patch("/tasks/{task_id}", response_model=TaskPublicOut)
@@ -3142,7 +3149,8 @@ def task_status(task_id: str, payload: TaskStatusIn, cur: User = Depends(get_cur
         text=_to_rich_text_body(payload.text), links=payload.links, file_ids=payload.file_ids,
         message=_to_rich_text_body(payload.message) if payload.message else None,
         evaluation=payload.evaluation, evaluations=[x.model_dump() for x in payload.evaluations],
-        review_note=payload.review_note, reason=payload.reason)
+        review_note=payload.review_note, reason=payload.reason,
+        season_id=payload.season_id, season_supplied="season_id" in payload.model_fields_set)
     return _to_task_public_out(result)
 
 
@@ -3854,6 +3862,10 @@ import broadcasts  # after bot_api: /broadcasts/senders before /broadcasts/{broa
 broadcasts.register_routes(router)
 import bot_console  # the console of stage 5, its status of stage 1 included
 bot_console.register_routes(router)
+
+import block_lifecycle
+block_lifecycle.register_routes(router)
+block_lifecycle.register_worker(app)
 
 app.include_router(router)
 # The HereBot service routes: a service token instead of a user session (backend/docs/BOT_API.md).

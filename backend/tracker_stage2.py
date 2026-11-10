@@ -158,6 +158,9 @@ def patch(task_id, uid, expected_revision, values):
                     patch_files(task_id, uid, task.revision, classic["file_ids"], increment_revision=False,
                                 build_response=False)
             changed = apply_fields(session, task, extras, uid)
+            if "season_id" in values:
+                from task_seasons import assign
+                changed = assign(session, task, values["season_id"], uid) or changed
             if changed and not classic:
                 task.revision += 1
             session.commit()
@@ -201,6 +204,9 @@ def enrich(session, task, result, uid, facts=None):
         if ref:
             result.children.append(ref)
     if uid:
+        from task_seasons import can_assign
+        if can_assign(session, task, uid, facts):
+            result.capabilities.append("assign_season")
         if can_edit_public(session, task, uid, facts):
             result.capabilities += ["edit_task_metadata", "manage_task_links", "change_task_type", "change_task_priority"]
         if can_edit_description(session, task, uid, facts):

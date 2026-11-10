@@ -137,7 +137,7 @@ def permitted(session, fr, uid, write=False):
         block = session.get(BlockORM, meta.legacy_name) if meta else None
         if not block or fr.purpose != "avatar":
             return False
-        own_draft = fr.uploaded_by_user_id == uid and access.allowed(uid, "block.edit", "block", block.name)
+        own_draft = not meta.archived_at and fr.uploaded_by_user_id == uid and access.allowed(uid, "block.edit", "block", block.name)
         return own_draft if write else meta.avatar_file_id == fr.file_id or own_draft
     if fr.owner_kind == "task":
         from tracker import metadata, can_work

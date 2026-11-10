@@ -22,6 +22,24 @@ records the real submitting actor/time; legacy `submitted` maps to `completed`.
 Public status commands reject private assessment/evaluation fields. Changing a
 working status never acknowledges or overwrites private accounting.
 
+Block tasks may start without a season (owner, 2026-11-10). Closing one requires
+an explicit season: a missing value answers 409 `task_season_required` without
+changing status, dates, revisions, notifications or KKR. A close command may carry
+`season_id` for a block task that has none; placement and closure then commit
+together at the same public revision. Seasonless support tickets keep their existing
+closure workflow and never receive an invented accounting season.
+
+The task capability `assign_season` belongs to current public editors or the person
+currently entitled to close the seasonless block task. `PATCH /tasks/{id}` accepts
+the first `season_id` with `expected_revision`, advances the public and private-input
+revisions and records a public season change. Planned, open and summarizing seasons
+can be selected; closed seasons cannot. The task's dates, parent, children and both
+directions of task links must remain compatible. Incompatible links must be removed
+explicitly; a mixed parent removal/first placement is atomic. There is no automatic
+transfer of linked tasks or KKR. Clearing or changing an already assigned season
+requires the existing administrative correction workflow. Preparing hours/criteria
+does not create KKR; assessment outcomes and contributions require a season.
+
 `POST /api/tasks/{id}/take` atomically self-assigns the current reader, removes their
 watcher role and sets `in_progress`. A direct status choice never self-assigns.
 Repeated satisfied commands are idempotent; stale revisions roll back.
@@ -121,11 +139,18 @@ A queue has no season of its own (owner 2026-11-08, В8). A granted queue DTO (i
 catalogue) carries its place: `scope_title` (the team), `season` `{season_id,title,state}`
 for event/subevent queues (the event's season) and a `task_creation` hint
 `{available,reason}` that repeats the `POST /tasks` rule: event/subevent while the event
-season is planned or open (`season_summarizing`, `season_closed`), block/chair while a
-season is open (`no_open_season`), legacy unscoped while one is planned or open
+season is planned or open (`season_summarizing`, `season_closed`), chair while a
+season is open (`no_open_season`), block independently of seasons, legacy unscoped while one is planned or open
 (`no_season`), `team_missing` for a vanished scope. KKR and WEBSUPPORT get `null`. The
 hint is advice for the UI; `POST /tasks` still decides. The catalogue loads all places
 of a page in a fixed handful of queries.
+
+For a block queue, `POST /tasks` accepts an omitted or null `season_id`. An explicit
+season may be planned, open or summarizing. An archived block gives the creation
+hint `block_archived` and rejects new tasks and queues, while its existing queues
+and tasks retain history and access. A pending/scheduled block removal does not
+close its queues early. Event/subevent, chair and historical unscoped queues retain
+their earlier season requirements.
 
 The UI (variant В, owner 2026-11-08, item 19) shows the place as the team's chip and a
 season pill coloured by `state` (open mint, planned lilac, summarizing peach, closed grey,

@@ -39,7 +39,7 @@ const presets: [string, string[]][] = [
   [aid, ["Матпомощь", "Материальная помощь"]],
   [union_reps, ["Профорги"]],
   [warehouse, ["Склад"]],
-  [sponsors, ["Спонсоры"]],
+  [sponsors, ["Спонсоры", "P2B", "Profkom to Business", "P2B (Profkom to Business)"]],
   [writers, ["Сценаристы"]],
   [technicians, ["Техники"]],
   [photo, ["Фото", "Фотоблок"]],

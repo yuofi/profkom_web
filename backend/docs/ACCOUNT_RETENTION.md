@@ -21,3 +21,9 @@ Cleanup removes credentials, contacts, identities, registration data and avatar 
 Object deletion requires a separate explicit `--delete-pending` invocation, mutually exclusive with `--apply`. It commits completed keys individually: a storage failure leaves the remaining keys pending for retry. Unsealed uploads queue both staging and sealed keys; adopted legacy avatars queue their stored key. Keys shared with other file records or another account's legacy avatar are preserved. Contextual work attachments survive account cleanup. The command never fetches VK images. Of `photo_url`, only an old public avatar key (`avatars/…`, see `legacy_files.legacy_key`) is queued; other URLs are not remotely deleted. The operator must also set backup retention/access controls; database cleanup cannot erase existing backups or revoke URLs of objects previously made public. A private bucket/CORS rollout is a separate deployment check.
 
 Block archive snapshots keep the proved `scope_block_id` across rename and name reuse. Old snapshots without that proof return `archive_scope_mapping_required` and require explicit role-to-block mapping before restore. Old tenure dates and labels are immutable. `scope_tenures.scope_block_id` is nullable for legacy data; a current roster operation closes an unproved active interval and starts a new proved interval at the operation time. Legacy labels do not grant historical authority over a new block that reuses a name.
+
+Block lifecycle decisions retain their timestamps, state and request identity after
+account retention. Typed first/second approver IDs are anonymized alongside other
+actor fields. Restoring an account cannot restore membership, scoped role or master
+appointment in an archived block; the block's historical material/task ACL remains
+subject to the existing active-account and retention checks.

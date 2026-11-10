@@ -13,7 +13,7 @@ _CLOSING='kkr_control_closing'
 _CLOSED_TASKS='kkr_control_closed_tasks'
 _PENDING=False
 _RELEVANT={
-    SeasonORM:('state',),TaskORM:('season_id','scope_kind','scope_id'),BlockORM:('name','master_user_id','is_hr'),BlockMetaORM:('hr_user_id','legacy_name','block_id'),
+    SeasonORM:('state',),TaskORM:('season_id','scope_kind','scope_id'),BlockORM:('name','master_user_id','is_hr'),BlockMetaORM:('hr_user_id','legacy_name','block_id','archived_at'),
     EventORM:('season_id','title'),SubeventORM:('event_id','title'),
     LeadershipORM:('chair_user_id','deputies_json'),RoleAssignmentORM:('role','user_id','scope_kind','scope_id'),
     UserORM:('account_state','banned'),TaskTrackerORM:('status',),

@@ -530,7 +530,7 @@ def patch_files(task_id,uid,expected_revision,file_ids,*,increment_revision=True
         return db.get_task(task_id,uid) if build_response else None
 
 
-def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file_ids=None,message=None,evaluation=None,review_note=None,reason=None,evaluations=None,legacy_assignment=None,require_result=False,respond=None):
+def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file_ids=None,message=None,evaluation=None,review_note=None,reason=None,evaluations=None,legacy_assignment=None,require_result=False,respond=None,season_id=None,season_supplied=False):
     """Readers change working status; only the author/fallback owner closes/reopens.
 
     ``respond(session)`` replaces the full task DTO answer (legacy assignment commands)."""
@@ -549,7 +549,14 @@ def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file
         if task.revision!=expected_revision:raise revision_conflict()
         if is_control_task(session,task_id):raise Conflict("Control epic status is managed automatically","control_epic_managed")
         if not can_change_status(session,task,uid,status):raise Forbidden("Only the task author may close or reopen this task","task_close_author_only")
+        if season_supplied:
+            if status != "closed":
+                raise InvalidInput("A status command may select a season only while closing a block task", "task_season_scope")
+            from task_seasons import assign
+            assign(session, task, season_id, uid)
         if status=="closed":
+            from task_seasons import require_season
+            require_season(task)
             from domain_models import KkrControlEpicORM
             control=session.query(KkrControlEpicORM).filter_by(task_id=task_id).first()
             if control and task_state(session,task)!="closed":raise Conflict("Control epic closes only at the end of its season","control_epic_managed")
@@ -558,7 +565,7 @@ def change_status(task_id,uid,expected_revision,status,*,text="",links=None,file
             check_attachments(session,file_ids,"assignment" if legacy_assignment else "task",legacy_assignment or task_id,uid)
             if not legacy_assignment and any(session.get(FileRecordORM,fid).purpose!="submission" for fid in file_ids):raise Forbidden("Invalid result file purpose")
         old=public_status(meta.status);stamp=now()
-        if status==old and not meta.legacy_mixed_statuses and not has_result and not message:return respond(session)
+        if status==old and not meta.legacy_mixed_statuses and not has_result and not message and not season_supplied:return respond(session)
         if has_result:
             session.add(TaskSubmissionORM(submission_id="task-submission-"+str(uuid.uuid4()),task_id=task_id,submitted_at=stamp,
                 created_by_user_id=uid,text_json=json.dumps({"format":"markdown","body":text}),links_json=json.dumps(links),files_json=json.dumps(file_ids)))
@@ -602,6 +609,8 @@ def require_closed_task(session,task,state):
     """KKR of a task is filled after its author closed it, as in the accounting batch; a
     closed season's correction is not refused (owner 2026-11-01, SE-12). Callers check the
     right first, so a caller without it keeps its 403/404."""
+    from task_seasons import require_season
+    require_season(task)
     if state!="closed" and public_status(metadata(session,task).status)!="closed":
         raise Conflict("Close the task before filling accounting","task_not_closed")
 

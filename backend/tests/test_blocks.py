@@ -1,6 +1,6 @@
 """Existing block directory and safe legacy adapters under API 1.3.
 
-Block creation/removal and direct entry are intentionally disabled. The actual
+Legacy roster injection, physical removal and direct entry remain disabled. The actual
 application, substitution, leave and membership history run in test_v13_membership.
 """
 import pytest
@@ -26,7 +26,7 @@ def test_legacy_mutations_cannot_bypass_existing_blocks_or_membership(client,sup
     if command=='create':r=client.post('/api/blocks',headers=superuser.headers,json=dict(name='New',master='Nobody',hr='',cnt_of_human=0,arr_of_human=[]))
     elif command=='delete':r=client.delete('/api/blocks/'+b.name,headers=superuser.headers)
     else:r=client.post('/api/blocks/'+b.name+'/enter',headers=user.headers,json={})
-    assert r.status_code==409,r.text
+    assert r.status_code==(422 if command=='create' else 409),r.text
     assert db.get_block(b.name) is not None and db.get_block('New') is None
     assert not db.is_block_member(user.user_id,b.name)
 

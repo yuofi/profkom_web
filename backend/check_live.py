@@ -505,18 +505,18 @@ def run_approved(api: Api, rep: Report, session: dict, read_only: bool) -> None:
     check(rep, "POST /api/materials без права → 403", writing(materials_create_forbidden))
 
     def blocks_create_forbidden():
-        if is_chair:
-            raise SkipCheck("учётка председателя — проверка запрета неприменима")
-        st, body, _ = api.request("POST", "/api/blocks", {"name": f"tmp{uuid.uuid4().hex[:6]}", "master": "x"}, auth=True)
-        expect_status(st, 403, "создание блока не председателем", body)
+        if is_chair or "create_block" in caps:
+            raise SkipCheck("учётка может создавать блоки — проверка запрета неприменима")
+        st, body, _ = api.request("POST", "/api/blocks", {"name": f"tmp{uuid.uuid4().hex[:6]}"}, auth=True)
+        expect_status(st, 403, "создание блока без права", body)
         return ""
 
-    check(rep, "POST /api/blocks не председателем → 403", writing(blocks_create_forbidden))
+    check(rep, "POST /api/blocks без права → 403", writing(blocks_create_forbidden))
 
     def delete_other_forbidden():
-        if is_chair:
-            # председателю этот маршрут архивирует учётку — не вызывать
-            raise SkipCheck("учётка председателя — проверка запрета неприменима")
+        if is_chair or "archive_account" in caps:
+            # Для уполномоченного руководителя это реальное архивирование.
+            raise SkipCheck("учётка может архивировать аккаунты — проверка запрета неприменима")
         st, body, _ = api.request("DELETE", "/api/profile/1", auth=True)
         assert st in (403, 404), f"удаление чужого профиля вернуло {st}, ожидалось 403 или 404"
         return f"HTTP {st}"

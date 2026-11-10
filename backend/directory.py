@@ -183,6 +183,7 @@ def contact_data(c):
         m = orm_get(s, ProfileMetadataORM, c.user_id)
         return {
             **c.__dict__,
+            "blocks": ",".join(name for name in c.blocks.split(",") if name and name not in __import__("block_lifecycle").archived_identities(s)),
             "photo_url": avatar_url(c.user_id),
             "participation_periods": (
                 json.loads(m.participation_periods_json or "[]") if m else []
@@ -196,7 +197,9 @@ def contacts(q=None, group_number=None, blocks=None, in_profcom=None, budget=Non
 
     wanted = [x.strip() for x in (blocks or "").split(",") if x.strip()]
     with db._session() as s:
-        names = {b.name for b in s.query(BlockORM)}
+        from block_lifecycle import archived_identities
+        archived = archived_identities(s)
+        names = {b.name for b in s.query(BlockORM) if b.name not in archived}
         from domain_models import BlockMetaORM
 
         aliases = {m.block_id: m.legacy_name for m in s.query(BlockMetaORM)}

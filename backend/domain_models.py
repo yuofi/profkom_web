@@ -40,6 +40,8 @@ class BlockMetaORM(Base):
     description = Column(Text, nullable=False, default="")
     community_url = Column(String, nullable=True)
     avatar_file_id = Column(String, nullable=True)
+    archived_at = Column(String, nullable=True)
+    deletion_request_id = Column(String, nullable=True)
     hr_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=True)
     revision = Column(Integer, nullable=False, default=1)
 
@@ -225,3 +227,107 @@ class KkrControlEpicORM(Base):
     managed_json = Column(Text, nullable=False, default="{}")
     created_at = Column(String, nullable=False)
     __table_args__ = (UniqueConstraint("season_id", "source_kind", "source_id", name="uq_kkr_control_source"),)
+
+
+class ScopeChatBindingORM(Base):
+    """Current binding or retained tombstone; scope identity never follows a block rename."""
+    __tablename__ = "scope_chat_bindings"
+    binding_id = Column(String, primary_key=True)
+    scope_kind = Column(String, nullable=False)
+    scope_id = Column(String, nullable=False)
+    revision = Column(Integer, nullable=False, default=0)
+    state = Column(String, nullable=False, default="unlinked")
+    bot_identity = Column(Integer, nullable=True)
+    peer_id = Column(Integer, nullable=True)
+    title = Column(String, nullable=False, default="")
+    confirmed_by_user_id = Column(Integer, nullable=True)
+    confirmed_at = Column(String, nullable=True)
+    observed_at = Column(String, nullable=True)
+    __table_args__ = (UniqueConstraint("scope_kind", "scope_id", name="uq_scope_chat_binding"),)
+
+
+class ScopeChatCodeORM(Base):
+    __tablename__ = "scope_chat_codes"
+    code_hash = Column(String, primary_key=True)
+    scope_kind = Column(String, nullable=False)
+    scope_id = Column(String, nullable=False)
+    user_id = Column(Integer, nullable=False, index=True)
+    vk_user_id = Column(Integer, nullable=False)
+    expected_revision = Column(Integer, nullable=False)
+    created_at = Column(String, nullable=False)
+    expires_at = Column(String, nullable=False)
+    used_binding_id = Column(String, nullable=True)
+    used_revision = Column(Integer, nullable=True)
+    used_bot_identity = Column(Integer, nullable=True)
+    used_peer_id = Column(Integer, nullable=True)
+
+
+class ScopeChatAttemptORM(Base):
+    __tablename__ = "scope_chat_attempts"
+    attempt_id = Column(String, primary_key=True)
+    vk_user_id = Column(Integer, nullable=False)
+    created_at = Column(String, nullable=False)
+    __table_args__ = (Index("ix_scope_chat_attempt_vk_time", "vk_user_id", "created_at"),)
+
+
+class TaskChatAnnouncementORM(Base):
+    __tablename__ = "task_chat_announcements"
+    announcement_id = Column(String, primary_key=True)
+    task_id = Column(String, ForeignKey("tasks.task_id"), nullable=False, unique=True)
+    binding_id = Column(String, nullable=False, index=True)
+    binding_revision = Column(Integer, nullable=False)
+    created_by_user_id = Column(Integer, nullable=False)
+    created_at = Column(String, nullable=False)
+    expires_at = Column(String, nullable=False)
+    state = Column(String, nullable=False, default="pending")
+    revision = Column(Integer, nullable=False, default=1)
+    payload_json = Column(Text, nullable=False)
+    payload_hash = Column(String, nullable=False)
+    recipient_user_ids_json = Column(Text, nullable=False, default="[]")
+    error_code = Column(String, nullable=True)
+    sent_at = Column(String, nullable=True)
+    retry_at = Column(String, nullable=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    result_fingerprint = Column(String, nullable=True)
+    checked_at = Column(String, nullable=True)
+    retry_generation = Column(Integer, nullable=False, default=0)
+    worker_id = Column(String, nullable=True)
+    lease_token = Column(String, nullable=True)
+    lease_expires_at = Column(String, nullable=True)
+    fence = Column(Integer, nullable=False, default=0)
+    parts_total = Column(Integer, nullable=True)
+    __table_args__ = (Index("ix_task_chat_due", "state", "retry_at", "created_at"),
+                      Index("ix_task_chat_sweep", "state", "checked_at", "created_at"),)
+
+
+class TaskChatPartORM(Base):
+    __tablename__ = "task_chat_parts"
+    announcement_id = Column(String, ForeignKey("task_chat_announcements.announcement_id"), primary_key=True)
+    part_number = Column(Integer, primary_key=True)
+    bot_identity = Column(Integer, nullable=False)
+    random_id = Column(Integer, nullable=False)
+    part_hash = Column(String, nullable=False)
+    result_fingerprint = Column(String, nullable=True)
+    state = Column(String, nullable=False, default="authorized")
+    message_id = Column(Integer, nullable=True)
+    __table_args__ = (UniqueConstraint("bot_identity", "random_id", name="uq_task_chat_random_id"),)
+
+
+class BlockDeletionRequestORM(Base):
+    __tablename__ = "block_deletion_requests"
+    request_id = Column(String, primary_key=True)
+    block_id = Column(String, ForeignKey("block_metadata.block_id"), nullable=False, index=True)
+    state = Column(String, nullable=False, default="pending")
+    revision = Column(Integer, nullable=False, default=1)
+    created_at = Column(String, nullable=False)
+    first_user_id = Column(Integer, nullable=True)
+    first_approved_at = Column(String, nullable=False)
+    second_user_id = Column(Integer, nullable=True)
+    second_approved_at = Column(String, nullable=True)
+    scheduled_at = Column(String, nullable=True)
+    delete_after = Column(String, nullable=True)
+    finished_at = Column(String, nullable=True)
+    cancel_reason = Column(String, nullable=True)
+    last_reminder = Column(Integer, nullable=False, default=0)
+    next_check_at = Column(String, nullable=True)
+    __table_args__ = (Index("ix_block_deletion_due", "state", "next_check_at"),)

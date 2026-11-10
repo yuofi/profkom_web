@@ -19,7 +19,13 @@ def canonical_key(value):
 
 
 def digest(payload, *context) -> str:
-    body = payload.model_dump_json(exclude={"idempotency_key"})
+    excluded = {"idempotency_key"}
+    # An omitted/disabled additive intent keeps the pre-feature task digest exactly,
+    # including a response lost before deployment. Enabled intent is immutable data.
+    intent = getattr(payload, "chat_announcement", None)
+    if hasattr(payload, "chat_announcement") and not (intent and intent.enabled):
+        excluded.add("chat_announcement")
+    body = payload.model_dump_json(exclude=excluded)
     return hashlib.sha256("\n".join([*map(str, context), body]).encode()).hexdigest()
 
 

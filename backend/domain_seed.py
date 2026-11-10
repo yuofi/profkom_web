@@ -87,6 +87,7 @@ def seed_members(s, b, m, migrated=False):
     """Rows for the legacy roster of a block, with an explicitly unknown start date. The
     migration gives a confirmed roster the category «участник» (decision 36); a row added
     after it is observed from now on if the account is approved (A-DIR-18)."""
+    if m.archived_at: return  # a frozen historical roster must never seed current membership
     observed = s.get(MigrationORM, "v13-observed-participation") is not None
     for uid in json.loads(b.arr_of_human or "[]"):
         u = s.get(UserORM, uid)

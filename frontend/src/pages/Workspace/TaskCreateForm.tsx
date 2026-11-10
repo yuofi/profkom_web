@@ -15,6 +15,8 @@ import { useScopeMembers } from "../../components/Workspace/ScopeMembers";
 import { authApi } from "../../utils/api/auth.api";
 import { tasksApi } from "../../utils/api/tasks.api";
 import { taskQueuesApi } from "../../utils/api/taskQueues.api";
+import { taskChatApi } from "../../utils/api/taskChat.api";
+import { TaskChatToggle } from "./TaskChatAnnouncement";
 import { seasonsApi } from "../../utils/api/seasons.api";
 import { membershipApi } from "../../utils/api/membership.api";
 import { eventsApi } from "../../utils/api/events.api";
@@ -79,6 +81,7 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
   const [queueId, setQueueId] = useState(initialQueueId ?? ""), [title, setTitle] = useState(""), [body, setBody] = useState("");
   const [deadline, setDeadline] = useState(""), [deadlineError, setDeadlineError] = useState(""), [season, setSeason] = useState(() => seasons.find(item => item.state === "open")?.season_id ?? seasons.find(item => item.state === "planned")?.season_id ?? "");
   const [assignees, setAssignees] = useState<string[]>([]), [watch, setWatch] = useState(false), [parentId, setParentId] = useState(parentTaskId ?? "");
+  const [legacyAssigneePeople, setLegacyAssigneePeople] = useState<UserRef[]>([]);
   const [planning,setPlanning] = useState(() => planningDraft()), [checklist,setChecklist] = useState<ChecklistDraft[]>([]);
   const [files, setFiles] = useState<FileRef[]>([]), [uploading, setUploading] = useState(false), [saving, setSaving] = useState(false), [attempted, setAttempted] = useState(false);
   const selectedQueue = queues.find(item => item.queue_id === (queueId || initialQueueId));
@@ -89,9 +92,13 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
   const queueReady = !!selectedQueue && queueDetails.data?.queue_id === selectedQueue.queue_id && queueDetails.data.access === "granted" && can(queueDetails.data, "create_task") && !queueDetails.error;
   const queuePending = !!selectedQueue && queueDetails.isFetching;
   const creationScope = queue?.scope ?? fallback?.scope;
-  // The server's own rule for the selected queue (owner 2026-11-08, В8): a closed or summarizing season takes no task.
+  const [chatChoice, setChatChoice] = useState<{ place: string; bindingRevision: number } | null>(null);
+  const chatPlace = selectedQueue ? `queue:${selectedQueue.queue_id}` : `${creationScope?.kind}:${creationScope?.id}`;
+  const chatEnabled = chatChoice?.place === chatPlace;
+  const chatContext = useQuery({ queryKey: ["tasks", "chat-context", chatPlace, [...assignees].sort()], queryFn: () => taskChatApi.context(selectedQueue?.queue_id, creationScope, assignees.map(Number)), enabled: queueReady || !!fallback });
+  // Queue availability is authoritative; block work may begin without a season.
   const creationNotice = queue ? queueCreationNotice(queue) : null;
-  const previousSeason = useRef(""), sent = useRef<RequestKey["current"]>(null);
+  const previousSeason = useRef<string | undefined>(undefined), sent = useRef<RequestKey["current"]>(null);
   const context = useQuery({ queryKey: ["tasks", "create-queue-season", queue?.scope?.kind, queue?.scope?.id], enabled: (creationScope?.kind === "subevent" || creationScope?.kind === "event") && !fallback, queryFn: async () => {
     if(queue!.scope!.kind==="event")return (await eventsApi.get(queue!.scope!.id)).season_id;
     const subevent = await eventsApi.subevent(queue!.scope!.id);return (await eventsApi.get(subevent.event_id)).season_id;
@@ -107,12 +114,12 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
     setAssignees(previous => previous.every(id => allowed.has(id)) ? previous : previous.filter(id => allowed.has(id)));
   }
   const eventScope=creationScope?.kind==="subevent"||creationScope?.kind==="event";
-  // Block and chair work need an open season, as database.create_task decides.
-  const openSeasonOnly = creationScope?.kind === "block" || creationScope?.kind === "chair";
-  const seasonChoices = seasons.filter(item => openSeasonOnly ? item.state === "open" : ["open", "planned"].includes(item.state));
-  const chosenSeason = seasonChoices.some(item => item.season_id === season) ? season : seasonChoices[0]?.season_id ?? "";
+  const optionalSeason = creationScope?.kind === "block", openSeasonOnly = creationScope?.kind === "chair";
+  const seasonChoices = seasons.filter(item => optionalSeason ? item.state !== "closed" : openSeasonOnly ? item.state === "open" : ["open", "planned"].includes(item.state));
+  // An explicit "later" selection must survive queue projections and season refetches.
+  const chosenSeason = optionalSeason && season === "" ? "" : seasonChoices.some(item => item.season_id === season) ? season : seasonChoices[0]?.season_id ?? "";
   const seasonId = eventScope ? fallback?.seasonId ?? context.data ?? "" : chosenSeason;
-  useEffect(() => { if (previousSeason.current && seasonId && previousSeason.current !== seasonId) setParentId("");if (seasonId) previousSeason.current = seasonId; }, [seasonId]);
+  useEffect(() => { if (previousSeason.current !== undefined && previousSeason.current !== seasonId) setParentId("");previousSeason.current = seasonId; }, [seasonId]);
   const seasonEnd = seasons.find(item => item.season_id === seasonId)?.ends_at;
   // A season past its end but not closed yet allows no deadline; min above max would only confuse.
   const [openedAt] = useState(() => Date.now()), seasonEnded = !!seasonEnd && Date.parse(seasonEnd) < openedAt;
@@ -120,7 +127,7 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
   const chooseAssignees = (value: string[]) => { setAssignees(value);if (session && value.includes(String(session.user_id))) setWatch(false); };
   const returnRoute = queue ? getTaskQueueRoute(queue.queue_id) : fallback ? scopeRoute(fallback.scope) : getTaskQueuesRoute();
   const assigneesLabel = useId(), watchersLabel = useId();
-  const external = { queueId, title, body, deadline, season, assignees, watch, parentId, files, planning, checklist: checklistPayload(checklist) };
+  const external = { queueId, title, body, deadline, season, assignees, watch, parentId, files, planning, checklist: checklistPayload(checklist), chatChoice };
   const [initial] = useState(external);
   return <>
     <BrandedHeader className={s.header}><TrackerHomeLink className={s.brandLabel} /><nav aria-label="Путь новой задачи"><Link to={returnRoute}>{queue?.name ?? fallback?.title ?? "Очереди"}</Link><span>›</span><span>Новая задача</span></nav><div className={s.titleRow}><h1 className={`${w.title} ${s.headerTitle}`}><input name="title" aria-label="Название задачи" value={title} onChange={event => setTitle(event.target.value)} placeholder="Название задачи" aria-invalid={attempted && !title.trim()} disabled={saving} /></h1><Link className={`${w.button} ${s.headerCancel}`} to={returnRoute}>Отмена</Link></div></BrandedHeader>
@@ -136,13 +143,15 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
         if (planned.starts_at && deadlineAt && Date.parse(planned.starts_at) > Date.parse(deadlineAt)) throw Error("Плановое начало не может быть позже дедлайна");
         if (checklist.some(item => !item.text.trim())) throw Error("Заполните каждый пункт чеклиста");
         const selectedSeason = seasons.find(item => item.season_id === seasonId);
-        if (openSeasonOnly && selectedSeason?.state !== "open") throw Error(creationScope?.kind === "chair" ? "Для работы председателя нужен открытый сезон" : "Для задачи блока нужен открытый сезон");
-        if (!selectedSeason || !["open", "planned"].includes(selectedSeason.state)) throw Error("Выберите открытый или запланированный сезон");
+        if (openSeasonOnly && selectedSeason?.state !== "open") throw Error("Для работы председателя нужен открытый сезон");
+        if (optionalSeason ? seasonId && (!selectedSeason || selectedSeason.state === "closed") : !selectedSeason || !["open", "planned"].includes(selectedSeason.state)) throw Error(optionalSeason ? "Выберите незакрытый сезон или укажите его позже" : "Выберите открытый или запланированный сезон");
         if (!session) throw Error("Войдите в аккаунт");
+        if (chatEnabled && (chatContext.isFetching || chatContext.error || !chatContext.data?.available || !chatContext.data.binding)) throw Error("Проверьте доступность чата или выключите рассылку, чтобы создать задачу без сообщения.");
+        if (chatEnabled && chatChoice.bindingRevision !== chatContext.data?.binding?.revision) throw Error("Привязка чата изменилась. Выключите и снова включите рассылку после проверки нового чата.");
         setSaving(true);
         try {
           setDeadlineError("");
-          const payload = { ...(queue ? { queue_id: queue.queue_id } : { scope: fallback!.scope }), season_id: seasonId, title: title.trim(), description: richText(body), deadline_at: deadlineAt, ...planned, checklist: checklistPayload(checklist), criteria: emptyCriteria(), assignees: assignees.map(user => ({ user_id: Number(user), hours: 0 })), watcher_user_ids: watch ? [session.user_id] : [], parent_task_id: parentId || null, file_ids: files.map(file => file.file_id) };
+          const payload = { ...(queue ? { queue_id: queue.queue_id } : { scope: fallback!.scope }), season_id: seasonId || null, title: title.trim(), description: richText(body), deadline_at: deadlineAt, ...planned, checklist: checklistPayload(checklist), criteria: emptyCriteria(), assignees: assignees.map(user => ({ user_id: Number(user), hours: 0 })), watcher_user_ids: watch ? [session.user_id] : [], parent_task_id: parentId || null, file_ids: files.map(file => file.file_id), ...(chatEnabled ? { chat_announcement: { enabled: true, binding_revision: chatChoice.bindingRevision } } : {}) };
           // A repeat after a lost answer returns the same task instead of a second one (GL-07).
           const created = await perform(() => tasksApi.create({ ...payload, idempotency_key: requestKey(sent, payload) }));
           sent.current = null;
@@ -162,10 +171,11 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
         </section>
         <aside className={s.parameters} aria-label="Параметры новой задачи"><h2>Параметры</h2>
           <TaskPlanningFields value={planning} onChange={setPlanning} disabled={saving} deadline={deadline ? toUtc(deadline) : undefined} />
-          {queue ? <><label className={`${w.field} ${s.field}`}>Очередь<select name="queue" value={queue?.queue_id ?? queueId} disabled={saving} aria-describedby={creationNotice ? "task-queue-notice" : undefined} onChange={event => { setQueueId(event.target.value);setAssignees([]); }}>{queues.map(item => <option key={item.queue_id} value={item.queue_id}>{queueOptionLabel(item)}</option>)}</select></label>{creationNotice && <p id="task-queue-notice" role="status" className={w.warning}>{creationNotice}</p>}</> : <div className={s.field}><span>Очередь</span><strong>Очередь команды по умолчанию</strong><small className={w.muted}>Задача появится в очереди этой команды.</small></div>}
-          {eventScope ? <div className={s.field}><span>Сезон</span><span className={s.fixedValue}><Glyph name="calendar_month" />{!fallback && context.isLoading ? "Загрузка…" : seasons.find(item => item.season_id === seasonId)?.title ?? "Не определён"}</span><small className={w.muted}>Определяется мероприятием.</small>{context.error && <QueryState loading={false} error={context.error}>{null}</QueryState>}</div> : <label className={`${w.field} ${s.field}`}>Сезон<select name="season" value={chosenSeason} onChange={event => setSeason(event.target.value)} disabled={saving} required>{seasonChoices.map(item => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select></label>}
+          {queue ? <><label className={`${w.field} ${s.field}`}>Очередь<select name="queue" value={queue?.queue_id ?? queueId} disabled={saving} aria-describedby={creationNotice ? "task-queue-notice" : undefined} onChange={event => { setQueueId(event.target.value);setAssignees([]);setChatChoice(null); }}>{queues.map(item => <option key={item.queue_id} value={item.queue_id}>{queueOptionLabel(item)}</option>)}</select></label>{creationNotice && <p id="task-queue-notice" role="status" className={w.warning}>{creationNotice}</p>}</> : <div className={s.field}><span>Очередь</span><strong>Очередь команды по умолчанию</strong><small className={w.muted}>Задача появится в очереди этой команды.</small></div>}
+          {eventScope ? <div className={s.field}><span>Сезон</span><span className={s.fixedValue}><Glyph name="calendar_month" />{!fallback && context.isLoading ? "Загрузка…" : seasons.find(item => item.season_id === seasonId)?.title ?? "Не определён"}</span><small className={w.muted}>Определяется мероприятием.</small>{context.error && <QueryState loading={false} error={context.error}>{null}</QueryState>}</div> : <label className={`${w.field} ${s.field}`}>Сезон<select name="season" value={chosenSeason} onChange={event => setSeason(event.target.value)} disabled={saving} required={!optionalSeason}>{optionalSeason && <option value="">Укажу позже</option>}{seasonChoices.map(item => <option key={item.season_id} value={item.season_id}>{item.title}</option>)}</select>{optionalSeason && !seasonId && <small className={w.muted}>Сезон потребуется перед закрытием задачи.</small>}</label>}
           <label className={`${w.field} ${s.field}`}>Дедлайн, МСК<input name="deadline" type="datetime-local" value={deadline} min={seasonEnded ? undefined : moscowInput(new Date().toISOString())} max={seasonEnd ? moscowInput(seasonEnd) : undefined} aria-invalid={!!deadlineError || undefined} aria-describedby={deadlineError ? "task-deadline-error" : undefined} onChange={event => { setDeadline(event.target.value);setDeadlineError(""); }}  disabled={saving} />{deadlineError ? <small id="task-deadline-error" className={w.fieldError}>{deadlineError}</small> : seasonEnded && <small className={w.muted}>Сезон закончился {displayDate(seasonEnd)}, МСК: дедлайн в нём поставить нельзя.</small>}</label>
-          <section className={s.people}><h3 id={assigneesLabel}>Исполнители</h3>{selectedQueue ? <QueryState loading={queuePending} error={queueDetails.error} retry={() => void queueDetails.refetch()}>{queueReady ? queue?.scope && can(queue, "assign_task_others") ? <PeopleChoices people={queue.assignable_users ?? []} value={assignees} onChange={chooseAssignees} name="users" labelledBy={assigneesLabel} disabled={saving} /> : <SelfChoice service={service} self={self} value={assignees} onChange={chooseAssignees} labelledBy={assigneesLabel} disabled={saving} /> : !queueDetails.error && !queuePending ? <Empty>Создание задачи в этой очереди недоступно.</Empty> : null}</QueryState> : fallback?.canAssignOthers ? <LegacyScopedAssignees scope={fallback.scope} value={assignees} onChange={chooseAssignees} labelledBy={assigneesLabel} disabled={saving} /> : <SelfChoice service={service} self={self} value={assignees} onChange={chooseAssignees} labelledBy={assigneesLabel} disabled={saving} />}</section>
+          <section className={s.people}><h3 id={assigneesLabel}>Исполнители</h3>{selectedQueue ? <QueryState loading={queuePending} error={queueDetails.error} retry={() => void queueDetails.refetch()}>{queueReady ? queue?.scope && can(queue, "assign_task_others") ? <PeopleChoices people={queue.assignable_users ?? []} value={assignees} onChange={chooseAssignees} name="users" labelledBy={assigneesLabel} disabled={saving} /> : <SelfChoice service={service} self={self} value={assignees} onChange={chooseAssignees} labelledBy={assigneesLabel} disabled={saving} /> : !queueDetails.error && !queuePending ? <Empty>Создание задачи в этой очереди недоступно.</Empty> : null}</QueryState> : fallback?.canAssignOthers ? <LegacyScopedAssignees scope={fallback.scope} value={assignees} onChange={chooseAssignees} onPeopleChange={setLegacyAssigneePeople} labelledBy={assigneesLabel} disabled={saving} /> : <SelfChoice service={service} self={self} value={assignees} onChange={chooseAssignees} labelledBy={assigneesLabel} disabled={saving} />}</section>
+          <TaskChatToggle context={chatContext.error ? undefined : chatContext.data} loading={chatContext.isFetching || chatContext.isPending} error={!!chatContext.error} retry={() => void chatContext.refetch()} enabled={chatEnabled} onChange={value => setChatChoice(value && chatContext.data?.binding ? { place: chatPlace, bindingRevision: chatContext.data.binding.revision } : null)} title={title} teamTitle={queue?.name ?? fallback?.title ?? "Команда"} assignees={(queue?.assignable_users ?? (fallback?.canAssignOthers ? legacyAssigneePeople : [self])).filter(person => assignees.includes(String(person.user_id)))} disabled={saving} />
           <section className={s.people}><h3 id={watchersLabel}>Наблюдатели</h3>{service ? <small className={w.muted}>Сервисный аккаунт не может быть наблюдателем.</small> : <PeopleChoices people={[self]} value={watch && session ? [String(session.user_id)] : []} onChange={value => setWatch(value.length > 0)} name="watchers" labelledBy={watchersLabel} disabled={saving || selfAssigned} />}{selfAssigned && <small className={w.muted}>Исполнитель уже получает уведомления.</small>}</section>
           <TrackerParentSelector value={parentId} onChange={setParentId} seasonId={seasonId} disabled={!seasonId || saving} />
         </aside>
@@ -175,9 +185,10 @@ function TaskCreationEditor({ queues, initialQueueId, seasons, parentTaskId, fal
     <div className={s.bottomCancel}><Link className={w.button} to={returnRoute}>Отмена</Link></div>
   </>;
 }
-function LegacyScopedAssignees({ scope, value, onChange, labelledBy, disabled }: { scope: ScopeRef; value: string[]; onChange: (value: string[]) => void; labelledBy: string; disabled: boolean }) {
+function LegacyScopedAssignees({ scope, value, onChange, onPeopleChange, labelledBy, disabled }: { scope: ScopeRef; value: string[]; onChange: (value: string[]) => void; onPeopleChange: (value: UserRef[]) => void; labelledBy: string; disabled: boolean }) {
   const members = useScopeMembers(scope);
-  return <QueryState loading={members.loading} error={members.error}><PeopleChoices people={members.options.map(person => person.user ?? ({ user_id: Number(person.value), display_name: person.label, avatar_url: null }))} value={value} onChange={onChange} name="users" labelledBy={labelledBy} disabled={disabled} /></QueryState>;
+  const people = members.options.map(person => person.user ?? ({ user_id: Number(person.value), display_name: person.label, avatar_url: null }));
+  return <QueryState loading={members.loading} error={members.error}><PeopleChoices people={people} value={value} onChange={value => { onChange(value);onPeopleChange(people.filter(person => value.includes(String(person.user_id)))); }} name="users" labelledBy={labelledBy} disabled={disabled} /></QueryState>;
 }
 /** Where a person may pick only themselves; the service account is no one to pick. */
 function SelfChoice({ service, self, value, onChange, labelledBy, disabled }: { service: boolean; self: UserRef; value: string[]; onChange: (value: string[]) => void; labelledBy: string; disabled: boolean }) {

@@ -139,6 +139,8 @@ def master_conflicts(s, a):
         if r["role"] != "master" or r["user_id"] != a.user_id:
             continue
         name = snapshot_block_name(s, r)
+        from block_lifecycle import is_archived
+        if name and is_archived(s,name): continue
         b = s.get(BlockORM, name) if name else None
         if b and b.master_user_id and b.master_user_id != a.user_id:
             meta = s.query(BlockMetaORM).filter_by(legacy_name=b.name).one()
@@ -348,7 +350,7 @@ def _restore(uid, payload, actor):
                 fail(422, "Invalid or duplicate archived block mapping")
             role = roles_by_id.get(mapping["role_assignment_id"])
             meta = s.get(BlockMetaORM, mapping["block_id"])
-            if not role or role["scope_kind"] != "block" or not meta:
+            if not role or role["scope_kind"] != "block" or not meta or meta.archived_at:
                 fail(422, "Unknown archived role or block mapping")
             if role.get("scope_block_id") and role["scope_block_id"] != meta.block_id:
                 fail(409, "A proved archived scope cannot be rebound")
@@ -390,7 +392,8 @@ def _restore(uid, payload, actor):
         s.get(ContactInfoORM, uid).in_profcom = snap["in_profcom"]
         s.flush()
         for m in snap["memberships"]:
-            if s.get(BlockMetaORM, m["block_id"]):
+            meta = s.get(BlockMetaORM, m["block_id"])
+            if meta and not meta.archived_at:
                 set_membership(s, uid, m["block_id"], True, actor, "Account restored")
         skipped = set()
         scopes = set()
@@ -399,7 +402,8 @@ def _restore(uid, payload, actor):
             r = dict(saved_role)
             if r["scope_kind"] == "block":
                 r["scope_id"] = snapshot_block_name(s, r)
-                if r["scope_id"] is None:
+                from block_lifecycle import is_archived
+                if r["scope_id"] is None or is_archived(s,r["scope_id"]):
                     skipped.add(r["role_assignment_id"])
                     continue
             owner = s.get(UserORM, r["user_id"])

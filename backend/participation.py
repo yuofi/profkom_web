@@ -166,6 +166,8 @@ def record_roster(session, kind, id):
             scope_kind=kind, scope_id=id
         )
     }
+    if kind == "block" and meta.archived_at:
+        desired = set()
     if kind == "subevent":
         import json
 

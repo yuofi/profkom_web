@@ -104,3 +104,40 @@ checks the deadline-free formula and new event/chair work sources. Synthetic leg
 schema imports are repeated through each supported import order in
 `test_portal_migration_iteration.py`; queue rebinding uses explicit source IDs and
 rejects changes to closed historical work.
+
+### Чаты задач (`chat_announcements_v1`)
+
+`tests/test_task_chat.py` проверяет одноразовую привязку с долговечными лимитами,
+scoped ACL/сервисный аккаунт, общую транзакцию task+outbox и GL-07,
+конкурентные create/claim, fencing, неизменяемые части, повтор после потерянного ACK,
+отвязку/CAS, закрытую очередь, offline, изменение исполнителей и retention.
+Startup репетируется дважды на SQLite backup синтетической старой схемы:
+сравнение прежних строк и `integrity_check`. Старые bot API SQL-бюджеты и JSON
+проверяет существующий `test_bot_api.py`; новые маршруты входят в общий API-инвентарь.
+Контракт: [TASK_CHAT_ANNOUNCEMENTS.md](docs/TASK_CHAT_ANNOUNCEMENTS.md).
+
+`tests/test_task_chat_end_to_end.py` дополнительно проходит публичные HTTP-команды
+от привязки до доставки/повтора/отвязки. Необязательная совместная проверка с
+настоящим HereBot включается переменными `PROFKOM_TASK_CHAT_BOT_SOURCE`
+(локальный checkout с `core/site_chat.py`) и `PROFKOM_TASK_CHAT_BOT_PYTHON`
+(путь к Python его venv, без разрешения symlink). Она запускает только временный
+uvicorn на случайном localhost-порту, два последовательных процесса бота с одной
+временной SQLite и подменённым VK. Проверяется восстановление трёх частей для
+101 участника без повторной отправки первой. Сервер и процессы завершаются тестом.
+
+Для отдельного ограниченного замера можно передать
+`PROFKOM_TASK_CHAT_PERF_REPORT=/absolute/local/path/performance.json`: 30 пар
+HTTP-созданий без/с намерением рассылки и 100 одновременных созданий при offline
+синтетическом боте. Проверяются 100 различных задач и 100 сохранённых outbox-записей.
+В обычном pytest этот замер не выполняется; локальные числа не являются оценкой
+production. HereBot PostgreSQL следует проверять отдельно на одноразовой БД:
+этот межсервисный тест использует SQLite и не подключается к существующей БД бота.
+
+`tests/test_block_lifecycle.py` covers strict block creation/rename permissions, two
+distinct human approvals (service refusal), block CAS/request identity, the durable
+72-hour clock with 24/48-hour notices to every current leader, cancellation and
+role loss, concurrent approvals/workers, bounded catch-up, failure isolation,
+read-only GET/idle polls, archival guards, historical ACL/current-role separation,
+startup twice and integrity. `test_block_lifecycle_acceptance.py` combines public
+HTTP, actual avatar bytes, queue/chat lock, seasonless historical-task closure and
+unchanged pre-existing KKR/guide identities. See `docs/BLOCK_LIFECYCLE.md`.

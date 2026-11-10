@@ -196,7 +196,7 @@ def store_snapshot(session, season_id, uid, reason, *, capture_analytics=True):
 
 
 def refresh(session, season_id, uid, reason):
-    if _suppress.get():
+    if season_id is None or _suppress.get():
         return
     season = session.get(SeasonORM, season_id)
     if not season:

@@ -2,7 +2,7 @@
 import ts from "typescript";
 import { fileURLToPath } from "node:url";
 
-const paths = ["../utils/api/contract.ts", "../utils/api/types.ts", "../utils/api/kkr.api.ts", "../utils/api/profileFeatures.api.ts"].map(p => fileURLToPath(new URL(p, import.meta.url)));
+const paths = ["../utils/api/contract.ts", "../utils/api/types.ts", "../utils/api/kkr.api.ts", "../utils/api/profileFeatures.api.ts", "../utils/api/taskChat.types.ts", "../utils/api/blockLifecycle.types.ts"].map(p => fileURLToPath(new URL(p, import.meta.url)));
 const program = ts.createProgram(paths, { strict: true, target: ts.ScriptTarget.ESNext });
 const checker = program.getTypeChecker();
 const sources = paths.map(p => program.getSourceFile(p)!);

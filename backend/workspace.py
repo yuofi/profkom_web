@@ -53,7 +53,10 @@ def participation(uid):
     blocks = []
     events = []
     with db._session() as session:
+        from block_lifecycle import archived_identities
+        archived = archived_identities(session)
         for block in session.query(BlockORM).order_by(BlockORM.name):
+            if block.name in archived: continue
             relations = access.scope_relations(uid, "block", block.name)
             roles = [name for relation, name in block_roles if relation in relations]
             if roles:
@@ -153,6 +156,13 @@ NOTIFICATION_PAGE = 30
 
 
 def notification_text(n, p, uid, extra):
+    if n.kind.startswith("block_deletion_"):
+        labels = {"requested":"Запрошено удаление блока", "scheduled":"Удаление блока запланировано",
+                  "reminder_1":"До удаления блока осталось 48 часов", "reminder_2":"До удаления блока осталось 24 часа",
+                  "executed":"Блок удалён из действующей структуры", "cancelled":"Удаление блока отменено"}
+        label = labels.get(n.kind.removeprefix("block_deletion_"),"Изменение удаления блока")
+        text = label + ": " + str(p.get("block_name", ""))
+        return text + (". Срок: " + p["delete_after"] if p.get("delete_after") and n.kind not in ("block_deletion_executed","block_deletion_cancelled") else "")
     if n.kind in NOTICE_KINDS:
         return notice_text(n.kind, p)
     if n.kind.startswith("block_request_"):
@@ -248,6 +258,10 @@ def notification_views(s, uid, notifications):
             e = s.get(EventORM, p["event_id"])
             allowed = bool(e)
             target = {"kind": "event", "id": p["event_id"]}
+        elif n.kind.startswith("block_deletion_") and p.get("block_id"):
+            from block_lifecycle import human_leader
+            allowed = human_leader(s,uid) and s.get(BlockMetaORM,p["block_id"]) is not None
+            target = {"kind":"block","id":p["block_id"]}
         elif n.kind == "block_member_removed" and p.get("block_id"):
             meta = s.get(BlockMetaORM, p["block_id"])
             allowed = bool(meta and access.allowed(uid, "block.remove_member", "block", meta.legacy_name))

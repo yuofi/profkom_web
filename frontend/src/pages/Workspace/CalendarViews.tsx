@@ -25,10 +25,10 @@ function CalendarPreview({ item, season }: { item: CalendarItem; season: string 
     <small className={c.previewKind}>{KINDS[item.kind].label}{item.task_key ? ` · ${item.task_key}` : ""}</small>
     <h3>{route ? <Link to={route}>{item.title}</Link> : item.title}</h3><p>{eventPeriod(item)}</p>
     {item.status && <p><TaskStatusBadge status={item.status} /></p>}
-    <InteractiveChip kind="link" to={getSeasonRoute(item.season_id)} className={c.seasonChip}
+    {item.season_id ? <InteractiveChip kind="link" to={getSeasonRoute(item.season_id)} className={c.seasonChip}
       label={<span className={c.seasonLabel}><span className={c.seasonPrefix}>Сезон:</span><span className={c.seasonName}>{season}</span></span>}
       title={`Сезон: ${season}`} ariaLabel={`Открыть сезон: ${season}`}
-      icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M3 10h18M8 3v4M16 3v4M8 14h3M13 17h3" /></svg>} />
+      icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M3 10h18M8 3v4M16 3v4M8 14h3M13 17h3" /></svg>} /> : <p>Сезон: не указан</p>}
   </div>;
 }
 export function CalendarItemLink({ item, season, time, compact = false }: { item: CalendarItem; season: string; time?: string; compact?: boolean }) {
@@ -74,7 +74,7 @@ export function CalendarTimeGrid({ days, items, seasonTitle, today, compact = fa
     <div className={c.timelineOverflow} ref={frame}><div className={c.timelineInner}>
       <div className={c.timelineHeader}><span>МСК</span>{days.map(day => <strong key={day} aria-current={day === today ? "date" : undefined} aria-label={day}>{dayLabel(day)}</strong>)}</div>
       <div className={c.allDayRow}><small>Весь день</small>{days.map(day => { const allDay = items.filter(item => item.all_day ? occursOnDay(item, day) : coversWholeDay(item, day));return <div key={day} aria-label={`Весь день: ${day}`}>
-        {allDay.map(item => <div key={item.id} style={toneStyle(KINDS[item.kind].tone)}><CalendarItemLink item={item} season={seasonTitle(item.season_id)} compact time={item.all_day ? undefined : "↔"} /></div>)}
+        {allDay.map(item => <div key={item.id} style={toneStyle(KINDS[item.kind].tone)}><CalendarItemLink item={item} season={(item.season_id ? seasonTitle(item.season_id) : "не указан")} compact time={item.all_day ? undefined : "↔"} /></div>)}
         {!allDay.length && <span className={c.allDayEmpty}>—</span>}
       </div>; })}</div>
       <div className={compact ? c.timelineScroller : c.timelineBody} ref={compact ? scroll : undefined}><div className={c.timeCanvas}>
@@ -84,12 +84,12 @@ export function CalendarTimeGrid({ days, items, seasonTitle, today, compact = fa
           {day === nowDay && <div className={c.nowLine} style={{ top: `${nowMinute / 60 * 48}px` }} aria-label="Текущее время" />}
           {layout.segments.map(segment => <div key={segment.item.id} className={`${c.timedItem} ${segment.point ? c.point : segment.end - segment.start < 45 ? c.short : ""} ${segment.continuesBefore ? c.continues : ""}`} data-calendar-item={segment.item.id} data-point={segment.point || undefined}
             style={{ ...toneStyle(KINDS[segment.item.kind].tone), top: `${segment.start / 60 * 48}px`, height: `${Math.max(26, (segment.end - segment.start) / 60 * 48)}px`, left: `calc(${segment.lane / segment.lanes * 100}% + 3px)`, width: `calc(${100 / segment.lanes}% - 6px)` }}>
-            <CalendarItemLink item={segment.item} time={segmentTime(segment)} season={seasonTitle(segment.item.season_id)} />
+            <CalendarItemLink item={segment.item} time={segmentTime(segment)} season={(segment.item.season_id ? seasonTitle(segment.item.season_id) : "не указан")} />
           </div>)}
           {layout.overflow.map(mark => <details key={mark.id} className={c.overflow} data-align={index < days.length / 2 && days.length > 1 ? "start" : "end"}
             style={{ top: `${mark.start / 60 * 48}px`, left: `calc(${mark.lane / mark.lanes * 100}% + 3px)`, width: `calc(${100 / mark.lanes}% - 6px)` }}>
             <summary aria-label={`Ещё записей в это время: ${mark.segments.length}`}>+{mark.segments.length}</summary>
-            <ul className={c.overflowList}>{mark.segments.map(segment => <li key={segment.item.id} style={toneStyle(KINDS[segment.item.kind].tone)}><CalendarItemLink item={segment.item} time={segmentTime(segment)} season={seasonTitle(segment.item.season_id)} compact /></li>)}</ul>
+            <ul className={c.overflowList}>{mark.segments.map(segment => <li key={segment.item.id} style={toneStyle(KINDS[segment.item.kind].tone)}><CalendarItemLink item={segment.item} time={segmentTime(segment)} season={(segment.item.season_id ? seasonTitle(segment.item.season_id) : "не указан")} compact /></li>)}</ul>
           </details>)}
         </div>; })}
       </div></div>
@@ -104,7 +104,7 @@ export function CalendarMonth({ days, offset, items, today, seasonTitle, openDay
     {days.map(day => { const entries = items.filter(item => occursOnDay(item, day)).sort((left, right) => Number(!!right.all_day) - Number(!!left.all_day) || left.starts_at.localeCompare(right.starts_at));return <div key={day} className={`${c.day} ${day === today ? c.today : ""}`} role="cell" aria-label={day} aria-current={day === today ? "date" : undefined}>
       <button className={c.dayNumber} aria-label={`Открыть день: ${day}`} onClick={() => openDay(day)}>{Number(day.slice(-2))}</button>
       {entries.slice(0, 4).map(item => <div key={item.id} className={c.monthEntry} style={toneStyle(KINDS[item.kind].tone)}>
-        <CalendarItemLink item={item} season={seasonTitle(item.season_id)} compact time={item.all_day ? undefined : moscowDay(item.starts_at) === day ? displayTime(item.starts_at) : "↔"} />
+        <CalendarItemLink item={item} season={(item.season_id ? seasonTitle(item.season_id) : "не указан")} compact time={item.all_day ? undefined : moscowDay(item.starts_at) === day ? displayTime(item.starts_at) : "↔"} />
       </div>)}
       {entries.length > 4 && <button className={c.moreEntries} onClick={() => openDay(day)}>Ещё {entries.length - 4}</button>}
     </div>;})}

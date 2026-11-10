@@ -289,7 +289,7 @@ class UnresolvedAssignment:
     assignment: AssignmentPublic
     task_id: str
     task_title: str
-    season_id: str
+    season_id: Optional[str]
     scope: ScopeRef
     deadline_at: Optional[str]
 

@@ -32,6 +32,7 @@ export const membershipApi = {
   updateBlock: (
     id: string,
     data: Revision & {
+      name?: string;
       description?: Block["description"];
       community_url?: string;
       avatar_file_id?: string | null;
