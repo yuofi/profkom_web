@@ -22,6 +22,7 @@ import { clearPrivateCache } from "../../utils/api/invalidation";
 import { leaveAuthNotice } from "../../utils/authSession";
 import s from "../../components/Workspace/Workspace.module.css";
 import { RegistrationForm } from "../../components/Workspace/RegistrationForm";
+import { RegistrationDecision } from "../../components/Workspace/RegistrationDecision";
 import { BotLinkStep } from "../../components/Workspace/BotLinkStep";
 import { missingFields } from "../../utils/contactFields";
 import { DemoRolePicker } from "../../components/Workspace/DemoRolePicker";
@@ -71,6 +72,7 @@ export function AccountStatePage() {
         <DemoRolePicker />
         <QueryState loading={application.isLoading} error={application.error} keepDataOnError={!!application.data}>
           <>
+            {application.data && <RegistrationDecision application={application.data} />}
             {reason && <p className={s.warning}>Причина: {reason}</p>}
             {missing.length > 0 || botMissing ? (
               <p role="status">

@@ -23,7 +23,7 @@ def apply_bindings(bindings, actor_uid):
         with db._session() as session:
             for item in bindings:
                 queue = session.get(TaskQueueORM, item["queue_id"])
-                if queue is None:
+                if queue is None or queue.deleted_at:
                     raise NotFound("Mapped queue not found")
                 kind, source_id = item["source_kind"], item["source_id"]
                 if kind == "block":

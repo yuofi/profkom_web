@@ -6,6 +6,7 @@
 - [READ_PATHS](READ_PATHS.md): lazy-загрузка, фильтры, кеш и отзыв прав, редактор
   отметок, правила измерения производительности.
 - [MOCKS](MOCKS.md): DEV-демо с выбором ролей, транспортные подмены и их ограничения.
+- [DIRECTORY_BADGES](DIRECTORY_BADGES.md): старшинство и цвета ярлыков контактов.
 - [Проверки backend/frontend/HTTP/браузера](../../backend/TESTING.md).
 - [Доменный API](../../backend/docs/README.md): контракты для DTO и форм.
 - [Архив первоначальной реализации и приёмки](../../docs/archive/README.md).

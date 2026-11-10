@@ -26,6 +26,7 @@ HR_TRACKER_READER = "hr_tracker_reader"  # narrowly scoped global tracker read, 
 PGAS_ADMIN = "pgas_admin"
 BLOCK_LEAD_ANYWHERE = "block_lead_anywhere"  # master or deputy of some block
 QUEUE_HOLDER = "queue_holder"  # leads some block, event or subevent
+QUEUE_OWNER = "queue_owner"  # explicit responsible person of this queue only
 # HereBot (owner, 2026-11-04): the console belongs to the master of the block named exactly
 # IT_BLOCK and the maintainers they assign; broadcasts to the chair, deputies and senders.
 IT_MASTER = "it_master"
@@ -116,6 +117,7 @@ POLICY = {
     "task.dates.edit": ByState({"*": SUMMARY, "closed": CLOSED_SEASON}),
     "queue.view": TACHKI | {HR_MASTER, HR_DEPUTY, QUEUE_HOLDER},
     "queue.create": TACHKI | BLOCK_LEADS | EVENT_LEADS | SUB_LEADS,
+    "queue.delete": TACHKI | {HR_MASTER, BLOCK_MASTER, EVENT_LEADER, SUB_LEADER, QUEUE_OWNER},
     "event.close": TACHKI,
     "event.reopen": TACHKI,
     "dashboard.all": TACHKI | {HR_MASTER},  # every block and event on the home page (АВ-26, АВ-35)

@@ -388,6 +388,10 @@ class TaskQueueORM(Base):
     __table_args__ = (Index("uq_task_queue_default_scope", "scope_kind", "scope_id", unique=True,
         sqlite_where=text("is_default = 1")),)
 
+    # Keep identities and task/accounting references after removal from the catalogue.
+    deleted_at = Column(String, nullable=True)
+    deleted_by_user_id = Column(Integer, nullable=True)
+
 
 class TaskQueueRequestORM(Base):
     __tablename__ = "task_queue_requests"
@@ -744,6 +748,17 @@ import service_account_models
 Base.metadata.create_all(bind=engine)
 support_models.upgrade_tasks(engine)
 service_account_models.upgrade(engine)
+
+
+def _ensure_sqlite_queue_deletion():
+    with engine.begin() as connection:
+        columns = {row[1] for row in connection.execute(text("PRAGMA table_info(task_queues)"))}
+        for name, kind in (("deleted_at", "VARCHAR"), ("deleted_by_user_id", "INTEGER")):
+            if columns and name not in columns:
+                connection.execute(text(f"ALTER TABLE task_queues ADD COLUMN {name} {kind}"))
+
+
+_ensure_sqlite_queue_deletion()
 
 
 def _ensure_sqlite_material_deleted_at():
@@ -5408,7 +5423,7 @@ class Database:
                 raise NotFound("Season not found")
             from task_queues import default_queue,can_read,validate_parent
             queue=session.get(TaskQueueORM,queue_id) if queue_id else None
-            if queue_id and not queue:raise NotFound("Queue not found")
+            if queue_id and (not queue or queue.deleted_at):raise NotFound("Queue not found")
             if queue:
                 if not can_read(session,queue,created_by_user_id):raise Forbidden("Queue access is required")
                 if scope_kind and (scope_kind!=queue.scope_kind or scope_id!=queue.scope_id):raise InvalidInput("Queue scope mismatch")

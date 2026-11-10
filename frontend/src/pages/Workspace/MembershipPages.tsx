@@ -24,6 +24,7 @@ import { sessionApi } from "../../utils/api/session.api";
 import { directoryApi } from "../../utils/api/directory.api";
 import { canRetainData } from "../../utils/api/request";
 import { richText, type BlockRequest, type RegistrationApplication } from "../../utils/api/contract";
+import { RegistrationDecision } from "../../components/Workspace/RegistrationDecision";
 import { can, useSession } from "../../utils/session";
 import { displayDate, waited } from "../../utils/dates";
 import { useDeadlineRefresh } from "../../utils/hooks/useDeadlineRefresh";
@@ -621,6 +622,7 @@ function RegistrationCard({ registration: r }: { registration: RegistrationAppli
         {r.status !== "approved" && can(r, "reset_registration_limit") && <details className={s.details}><summary>Сбросить лимит отправок</summary><ActionForm revision={r.revision} record={`registration:${r.user_id}`} fields={[{ name: "reason", label: "Основание сброса счётчика", required: true }]} submitLabel="Сбросить лимит" variant="quiet" onConflict={refresh} onSubmit={async (values, revision) => perform(() => membershipApi.registrationCommand(r.user_id, "reset-attempts", { expected_revision: revision!, reason: text(values, "reason") }))} /></details>}
       </div>}
     </details>
+    <RegistrationDecision application={r} />
     {r.status === "pending" && botBlocks && <p id={reasonId} className={`${s.muted} ${m.decisionNote}`}>{BOT_NOT_READY}</p>}
     {r.status === "pending" && <div className={m.decisions}><button type="button" className={s.button} aria-busy={busy} disabled={busy || botBlocks} aria-describedby={botBlocks ? reasonId : undefined} onClick={() => void approve()}>Одобрить</button><button type="button" className={`${s.button} ${m.reject}`} disabled={busy} onClick={() => setRejecting(true)}>Отклонить</button></div>}
     {error && <p role="alert" className={s.error}>{error}</p>}

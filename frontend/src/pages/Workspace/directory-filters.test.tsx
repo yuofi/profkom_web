@@ -97,6 +97,7 @@ it("D-08: the profile, block links and account management stay separate controls
 
 it("D-08: only who may manage an account sees the management in the card", async () => {
   mock = installMockTransport("organizer", { delay: 0 });
+  vi.spyOn(membershipApi, "blocks").mockResolvedValue([]);
   vi.spyOn(directoryApi, "contacts").mockResolvedValue([person(101, "Первокурсникова", "101", true), person(102, "Контрактов", "301", false)]);
   page = await mountWorkspace(<DirectoryPage />, { role: "organizer" });
   await settle(); await settle();
@@ -104,7 +105,7 @@ it("D-08: only who may manage an account sees the management in the card", async
   expect(cards()).toHaveLength(2);
   for (const card of cards()) {
     expect(card.querySelector("button")).toBeNull();
-    expect(card.querySelector('[class*="side"] [class*="category"]')?.textContent).toBe("Джуниор");
+    expect(card.querySelector('[class*="side"] [class*="category"]')?.textContent).toBe("Джун");
   }
   await page.cleanup(); mock.restore();
   mock = installMockTransport("chair", { delay: 0 });

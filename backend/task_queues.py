@@ -34,6 +34,16 @@ def owns(session, queue, uid):
     return bool(queue and uid and (queue.owner_user_id==uid or is_service_id(uid)))
 
 
+def can_delete(session, queue, uid):
+    import access
+    from support import is_support_queue
+    if not queue or queue.deleted_at or queue.key in ('KKR','WEBSUPPORT') or is_support_queue(session,queue):return False
+    if not can_read(session,queue,uid):return False
+    rel=access.relations(uid,queue.scope_kind,queue.scope_id)
+    if queue.owner_user_id == uid:rel=rel | {access.QUEUE_OWNER}
+    return access.allowed(uid,'queue.delete',rel=rel)
+
+
 def base_read(uid, queue):
     return queue.scope_kind=="queue" or db.can_view_scope(uid,queue.scope_kind,queue.scope_id)
 
@@ -559,8 +569,8 @@ def rename_placeholder_event_queues(session):
 
 
 def default_queue(session, kind, scope_id):
-    rows=session.query(TaskQueueORM).filter_by(scope_kind=kind,scope_id=scope_id,is_default=True).all()
-    rows += [q for q in session.new if isinstance(q,TaskQueueORM) and q.scope_kind==kind and q.scope_id==scope_id and q.is_default and q not in rows]
+    rows=session.query(TaskQueueORM).filter_by(scope_kind=kind,scope_id=scope_id,is_default=True,deleted_at=None).all()
+    rows += [q for q in session.new if isinstance(q,TaskQueueORM) and not q.deleted_at and q.scope_kind==kind and q.scope_id==scope_id and q.is_default and q not in rows]
     if rows:return rows[0]
     title=_scope_title(session,kind,scope_id)
     used={q.key for q in session.query(TaskQueueORM)}|{q.key for q in session.new if isinstance(q,TaskQueueORM)}
@@ -647,9 +657,12 @@ def projection(session, queue, uid, *, include_assignable=True, binding=None):
     from support import is_support_queue
     managed_control=queue.key=='KKR'
     if managed_control:caps=[]
-    can_request=not managed_control and not is_support_queue(session,queue) and not granted and active(session,uid) and (not request or request.status!='pending')
+    if can_delete(session,queue,uid):caps.append('delete_queue')
+    if queue.deleted_at:caps=['view_queue_requests'] if granted and owns(session,queue,uid) else []
+    can_request=not queue.deleted_at and not managed_control and not is_support_queue(session,queue) and not granted and active(session,uid) and (not request or request.status!='pending')
     if can_request:caps.append('request_queue_access')
     if not managed_control and request and request.status=='pending' and request.user_id==uid:caps.append('cancel_queue_access_request')
+    if queue.deleted_at:can_request=False
     result=dict(**queue_ref(queue),access='granted' if granted else 'locked',capabilities=caps,
         can_request_access=can_request,access_request_status=request.status if request else None,
         access_request_id=request.request_id if request else None,access_request_revision=request.revision if request else None)
@@ -665,9 +678,10 @@ def projection(session, queue, uid, *, include_assignable=True, binding=None):
         result.update(scope=None if queue.scope_kind=="queue" else scope_out(ScopeRef(kind=queue.scope_kind,id=queue.scope_id)),
             owner=asdict(owner) if owner else None,owner_unavailable=not owner_available(session,queue),
             is_private=queue.is_private,revision=queue.revision,created_at=queue.created_at)
+        if queue.deleted_at:result['deleted_at']=queue.deleted_at
         # Only readers who see the scope see where the queue lives (owner 2026-11-08, В8).
         place=dict(binding if binding is not None else queue_bindings(session,[queue])[queue.queue_id])
-        if managed_control or is_support_queue(session,queue):place['task_creation']=None
+        if managed_control or is_support_queue(session,queue) or queue.deleted_at:place['task_creation']=None
         result.update(**place)
     return result
 
@@ -710,7 +724,7 @@ def create_access(uid):
     """Whether any catalogue queue carries create_task for the reader (the projection rule)."""
     from support import is_support_queue
     with db._session() as session:
-        rows=session.query(TaskQueueORM).all() if active(session,uid) else []
+        rows=session.query(TaskQueueORM).filter_by(deleted_at=None).all() if active(session,uid) else []
         _prime_catalog(session,rows,uid)
         return dict(can_create_task=any(queue.key!='KKR' and can_read(session,queue,uid) and not is_support_queue(session,queue) for queue in rows))
 
@@ -721,7 +735,7 @@ def catalog(uid,cursor=None):
     from membership import scope_out
     from models import ScopeRef
     with db._session() as session:
-        rows=session.query(TaskQueueORM).all() if active(session,uid) else []
+        rows=session.query(TaskQueueORM).filter_by(deleted_at=None).all() if active(session,uid) else []
         page=cursor_page(rows,lambda q:(q.key,q.queue_id),cursor)
         _prime_catalog(session,page.items,uid)
         scopes=[]
@@ -787,14 +801,34 @@ def _owner_for_service(session,queue,owner_user_id):
     return successor[0]
 
 
-def managed(session,queue_id,uid):
+def managed(session,queue_id,uid,*,allow_deleted=False):
     q=session.get(TaskQueueORM,queue_id)
-    if not q:raise NotFound('Queue not found')
+    if not q or (q.deleted_at and not allow_deleted):raise NotFound('Queue not found')
     if q.key=='KKR':raise Conflict('Control queue is managed automatically','control_epic_managed')
     from support import is_support_queue
     if is_support_queue(session,q):raise Forbidden('Use support settings to manage this queue')
     if not can_read(session,q,uid) or not owns(session,q,uid):raise Forbidden('Only the queue owner can manage this queue')
     return q
+
+
+def delete(queue_id,uid,expected_revision):
+    """Remove a queue from use; its key, grants, tasks and accounting stay intact."""
+    from database import AuditLogORM
+    with db._session() as session:
+        q=session.get(TaskQueueORM,queue_id)
+        if not q or q.deleted_at or not can_read(session,q,uid):raise NotFound('Queue not found')
+        if not can_delete(session,q,uid):raise Forbidden('Queue deletion is not allowed')
+        if q.revision!=expected_revision:raise revision_conflict()
+        at=now();was_default=q.is_default
+        q.deleted_at=at;q.deleted_by_user_id=uid;q.is_default=False;q.revision+=1
+        for request in session.query(TaskQueueRequestORM).filter_by(queue_id=queue_id,status='pending'):
+            request.status='cancelled';request.decided_at=at;request.decided_by_user_id=uid;request.revision+=1
+        session.add(AuditLogORM(target_kind='task_queue',target_id=q.queue_id,changed_by_user_id=uid,
+            reason='Queue deleted; tasks and accounting retained',created_at=at,
+            old_values_json=json.dumps({'is_default':was_default,'deleted_at':None}),
+            new_values_json=json.dumps({'deleted_at':at,'deleted_by_user_id':uid,'queue_revision':q.revision})))
+        session.commit()
+        return dict(deleted=True,revision=q.revision)
 
 
 def patch(queue_id,uid,expected_revision,**values):
@@ -832,7 +866,7 @@ def request_access(queue_id,uid,message=''):
     from notifications import emit
     with db._session() as session:
         q=session.get(TaskQueueORM,queue_id)
-        if not q:raise NotFound('Queue not found')
+        if not q or q.deleted_at:raise NotFound('Queue not found')
         if q.key=='KKR':raise Conflict('Control queue access is managed automatically','control_epic_managed')
         if not active(session,uid):raise Forbidden('Only active users may request queue access')
         from support import is_support_queue
@@ -852,7 +886,7 @@ def request_access(queue_id,uid,message=''):
 def requests(queue_id,uid,cursor=None):
     from api_contract import cursor_page
     with db._session() as session:
-        managed(session,queue_id,uid)
+        managed(session,queue_id,uid,allow_deleted=True)
         rows=session.query(TaskQueueRequestORM).filter_by(queue_id=queue_id).all()
         page=cursor_page(rows,lambda r:(r.created_at,r.request_id),cursor,descending=True)
         return dict(items=[request_projection(session,r,uid) for r in page.items],next_cursor=page.next_cursor)
@@ -861,6 +895,8 @@ def requests(queue_id,uid,cursor=None):
 def cancel_request(queue_id,request_id,uid,expected_revision):
     """Only the requester can withdraw their still pending access request."""
     with db._session() as session:
+        queue=session.get(TaskQueueORM,queue_id)
+        if not queue or queue.deleted_at:raise NotFound('Queue not found')
         row=session.get(TaskQueueRequestORM,request_id)
         if not row or row.queue_id!=queue_id or row.user_id!=uid:raise NotFound('Access request not found')
         if row.revision!=expected_revision:raise revision_conflict()
@@ -892,7 +928,7 @@ def decide(queue_id,request_id,uid,expected_revision,approve):
 
 def revoke(queue_id,user_id,uid,expected_revision):
     with db._session() as session:
-        managed(session,queue_id,uid)
+        managed(session,queue_id,uid,allow_deleted=True)
         grant=session.get(TaskQueueMemberORM,(queue_id,user_id))
         if not grant or not grant.active:raise NotFound('Active queue grant not found')
         row=session.get(TaskQueueRequestORM,grant.request_id)

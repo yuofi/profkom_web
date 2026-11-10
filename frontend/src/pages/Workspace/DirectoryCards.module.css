@@ -30,9 +30,16 @@
 /* The right column: the category badge on top, the account management in the card's lower
  * right corner. Its two short lines keep the column as narrow as the badge (D-08). */
 .side { flex: 0 0 auto; align-self: stretch; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-/* The category badge is one word: it never breaks inside (PE-30). */
+/* Long leadership labels wrap between words without squeezing the contact's name. */
 .category { font-size: 12px; }
-.category > * { white-space: nowrap; }
+.category > * { white-space: normal; overflow-wrap: normal; max-width: 126px; text-align: center; }
+.category .roleBadge { --role-color: var(--accent-sky); background: color-mix(in srgb, var(--role-color) 16%, var(--surface-container)); color: var(--role-color); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--role-color) 36%, transparent); justify-content: center; }
+.category > .roleBadge { box-sizing: border-box; max-width: 118px; white-space: normal; font-size: 12px; }
+.category > .roleBadge[data-contact-role="deputy"] { max-width: 106px; }
+.roleBadge[data-contact-role="junior"] { --role-color: var(--accent-lilac); }
+.roleBadge[data-contact-role="master"] { --role-color: var(--accent-mint); }
+.roleBadge[data-contact-role="deputy"], .roleBadge[data-contact-role="chair"] { --role-color: var(--accent-gold); }
+.category .roleBadge[data-contact-role="chair"] { background: var(--accent-gold); color: var(--on-primary); font-weight: 600; }
 /* Its words break only between them: the card's «anywhere» would split them into letters. */
 .manage { margin: auto -6px -2px 0; width: min-content; overflow-wrap: normal; padding: 2px 6px; border: 0; border-radius: var(--radius-small); background: none; color: var(--primary); font: inherit; font-size: 12px; font-weight: 500; line-height: 1.3; text-align: right; cursor: pointer; }
 .manage:hover { background: color-mix(in srgb, var(--primary) var(--hover-opacity), transparent); }

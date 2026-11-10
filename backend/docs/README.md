@@ -14,6 +14,7 @@
 | Связь с ботом HereBot: очередь работы, отчёты, консоль | [BOT_API](BOT_API.md) |
 | Сервисный аккаунт: вход по логину, права, невидимость, уведомления о входе | [SERVICE_ACCOUNT](SERVICE_ACCOUNT.md) |
 | История и скрытие текстов версий | [HISTORY](HISTORY.md) |
+| Кто и когда одобрил или отклонил регистрацию | [REGISTRATION_DECISIONS](REGISTRATION_DECISIONS.md) |
 | Аватары блоков | [BLOCK_AVATARS](BLOCK_AVATARS.md) |
 | Проекции чтения и производительность | [READ_PROJECTIONS](READ_PROJECTIONS.md) |
 | Базовые уточнения API 1.3 и совместимость | [API_V13_ADDITIONS](API_V13_ADDITIONS.md); поздний тематический контракт имеет приоритет |

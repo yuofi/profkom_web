@@ -109,6 +109,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('POST', '/api/task-queues'),
     ('GET', '/api/task-queues/{queue_id}'),
     ('PATCH', '/api/task-queues/{queue_id}'),
+    ('DELETE', '/api/task-queues/{queue_id}'),
     ('POST', '/api/task-queues/{queue_id}/access-requests'),
     ('GET', '/api/task-queues/{queue_id}/access-requests'),
     ('POST', '/api/task-queues/{queue_id}/access-requests/{request_id}/approve'),

@@ -1,6 +1,7 @@
 """Registration review with a bounded, auditable resubmission process."""
 
 import json, uuid
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -145,7 +146,42 @@ def links_of(s, uids):
     return {l.user_id: l for l in s.query(BotLinkORM).filter(BotLinkORM.user_id.in_(sorted(set(uids))))}
 
 
-def dto(r, uid, link=None):
+def saved_decision(r):
+    """Only the decision of the current submission; legacy gaps stay unknown."""
+    if r.status not in ("approved", "rejected"):
+        return None
+    try:
+        history = json.loads(r.history_json or "[]")
+    except (TypeError, ValueError, RecursionError):
+        history = []
+    action = "approve" if r.status == "approved" else "reject"
+    entry = next((entry for entry in reversed(history) if isinstance(entry, dict)
+                  and entry.get("action") == action), {}) if isinstance(history, list) else {}
+    actor = entry.get("actor")
+    actor = actor if type(actor) is int and 0 < actor <= 2**63 - 1 else None
+    at = entry.get("at")
+    try:
+        # A naive old timestamp is not a proven instant: do not invent its timezone.
+        if not isinstance(at, str) or datetime.fromisoformat(at).tzinfo is None:
+            at = None
+    except ValueError:
+        at = None
+    return dict(outcome=r.status, actor_id=actor, at=at)
+
+
+def decision_actors(s, registrations):
+    """Batch names using the existing anonymization policy, without avatar storage I/O."""
+    from sqlalchemy.orm import joinedload
+    from database import _user_ref_with_avatar
+    ids = {entry["actor_id"] for r in registrations if (entry := saved_decision(r))
+           and entry["actor_id"] is not None}
+    return {
+        user.user_id: asdict(_user_ref_with_avatar(user, None))
+        for user in s.query(UserORM).options(joinedload(UserORM.contact)).filter(UserORM.user_id.in_(ids))
+    } if ids else {}
+
+
+def dto(s, r, uid, link=None, actors=None):
     """`link` is the applicant's bot_links row (link_of/links_of): it fills `bot_link` and,
     with the integration on, approval is offered only for a ready application."""
     on, state = bot_link.enabled(), bot_link.state_of(link)
@@ -157,6 +193,10 @@ def dto(r, uid, link=None):
             caps += (["approve_registration"] if not on or ready(r, state) else []) + ["reject_registration"]
         if r.status != "approved":
             caps += ["reset_registration_limit"]
+    decision = saved_decision(r)
+    if decision:
+        actors = decision_actors(s, [r]) if actors is None else actors
+        decision["actor"] = actors.get(decision.pop("actor_id"))
     return dict(
         user_id=r.user_id,
         status=r.status,
@@ -168,6 +208,7 @@ def dto(r, uid, link=None):
         revision=r.revision,
         capabilities=caps,
         bot_link=dict(state=state or "none", vk_user_id=link.vk_user_id if link else None) if on else None,
+        decision=decision,
     )
 
 
@@ -193,7 +234,7 @@ def register_routes(router):
     def own(cur: User = Depends(get_current_user)):
         with db._session() as s:
             r = ensure_application(s, cur.user_id, persist=False)
-            return dto(r, cur.user_id, link_of(s, cur.user_id))
+            return dto(s, r, cur.user_id, link_of(s, cur.user_id))
 
     @router.patch("/registrations/me", response_model=ApplicationOut)
     def update(payload: Update, cur: User = Depends(get_current_user)):
@@ -227,7 +268,7 @@ def register_routes(router):
                 fields,
             )
             s.commit()
-            return dto(r, cur.user_id, link_of(s, cur.user_id))
+            return dto(s, r, cur.user_id, link_of(s, cur.user_id))
 
     @router.post("/registrations/me/resubmit", response_model=ApplicationOut)
     def resubmit(payload: Revision, cur: User = Depends(get_current_user)):
@@ -268,7 +309,7 @@ def register_routes(router):
                 dict(total_submissions=r.total_submissions),
             )
             s.commit()
-            return dto(r, cur.user_id, link_of(s, cur.user_id))
+            return dto(s, r, cur.user_id, link_of(s, cur.user_id))
 
     @router.get("/registrations", response_model=Page[ApplicationOut])
     def queue(
@@ -286,7 +327,8 @@ def register_routes(router):
                 rows = rows.filter(RegistrationORM.status == status)
             rows = sorted(rows, key=lambda r: (order.get(r.status, 3), r.user_id))
             links = links_of(s, [r.user_id for r in rows])
-            return Page(items=[dto(r, cur.user_id, links.get(r.user_id)) for r in rows])
+            actors = decision_actors(s, rows)
+            return Page(items=[dto(s, r, cur.user_id, links.get(r.user_id), actors) for r in rows])
 
     @router.post("/registrations/{user_id}/{command}", response_model=ApplicationOut)
     def decide(
@@ -391,7 +433,7 @@ def register_routes(router):
             collect_delivery_event(s, user_id, "registration_" + command, {"registration_user_id": user_id},
                                    event_key)
             s.commit()
-            return dto(r, cur.user_id, link_of(s, user_id))
+            return dto(s, r, cur.user_id, link_of(s, user_id))
 
 
 from domain_seed import ensure_application

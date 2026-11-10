@@ -39,6 +39,7 @@ it("labels chair and deputy above blocks, with filled and outlined crowns; prese
   expect(deputy.nextElementSibling?.className).toContain("blocks");
   expect(card(202).querySelector('[data-block-master="true"] svg')?.getAttribute("fill")).toBe("none");
   expect(card(203).querySelector('[class*="leadership"]')).toBeNull();
+  expect(card(203).querySelector('[data-contact-role]')?.textContent).toBe("Активист");
   expect(card(201).textContent).not.toContain("[]");
 });
 
@@ -54,7 +55,36 @@ it("updates transferred roles and removes cached roles after loss of access; ret
   await act(async () => { await page!.client.invalidateQueries({ queryKey: ["leadership"] }); });
   await waitForPage(page!);
   expect(card(203).querySelector('[class*="leadership"]')).toBeNull();
+  expect(card(203).querySelector('[data-contact-role]')).toBeNull();
+  expect(card(203).textContent).toContain("Роль недоступна");
   const retry = [...page!.container.querySelectorAll("button")].find(b => b.textContent === "Повторить загрузку ролей")!;
   await act(async () => retry.click()); await waitForPage(page!);
   expect(card(203).querySelector('[class*="leadership"]')?.textContent).toBe("Председатель");
+});
+
+it("does not present a lower category as the highest role when the block catalogue is unavailable", async () => {
+  await mount();
+  vi.mocked(membershipApi.blocks).mockRejectedValueOnce(new ApiError("Forbidden", 403, "forbidden"));
+  await act(async () => { await page!.client.invalidateQueries({ queryKey: ["workspaceBlocks"] }); });await waitForPage(page!);
+  expect(card(201).querySelector('[data-contact-role]')?.textContent).toBe("Председатель");
+  expect(card(202).querySelector('[data-contact-role]')?.textContent).toBe("Зам председателя");
+  expect(card(203).querySelector('[data-contact-role]')).toBeNull();
+  expect(card(203).textContent).toContain("Роль недоступна");
+  const retry = [...page!.container.querySelectorAll("button")].find(b => b.textContent === "Повторить загрузку блоков")!;
+  await act(async () => retry.click());await waitForPage(page!);
+  expect(card(203).querySelector('[data-contact-role]')?.textContent).toBe("Активист");
+});
+
+it("shows exactly one highest role badge, even when leaders are juniors and hold several roles", async () => {
+  mock = installMockTransport("organizer", { delay: 0 });
+  const ids = [201, 202, 203, 204, 205];
+  vi.spyOn(directoryApi, "contacts").mockResolvedValue(ids.map(person));
+  vi.spyOn(membershipApi, "categories").mockResolvedValue(ids.map(user_id => ({ user_id, category: user_id === 204 ? "activist" : "junior", revision: 1, capabilities: [] })));
+  const blocks = await membershipApi.blocks();
+  vi.spyOn(membershipApi, "blocks").mockResolvedValue([201, 202, 203].map((id, i) => ({ ...blocks[0], block_id: `block-${i}`, name: `Блок ${i}`, master: { role_assignment_id: `master-${i}`, user: ref(id), deputy_user_ids: [], revision: 1, capabilities: [] } })));
+  vi.spyOn(sessionApi, "leadership").mockResolvedValue({ chair: ref(201), deputies: [ref(201), ref(202)], revision: 1, capabilities: [] });
+  page = await mountWorkspace(<DirectoryPage />, { role: "organizer" });await waitForPage(page);
+  expect(ids.map(id => card(id).querySelector('[data-contact-role]')?.textContent)).toEqual(["Председатель", "Зам председателя", "Мастер", "Активист", "Джун"]);
+  for (const id of ids) expect(card(id).querySelectorAll('[data-contact-role]')).toHaveLength(1);
+  expect(card(202).querySelector('[data-block-master="true"]')).not.toBeNull();
 });

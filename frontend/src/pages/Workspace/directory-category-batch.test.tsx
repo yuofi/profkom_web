@@ -40,7 +40,7 @@ it("keeps missing targets unknown and reports partial categories rather than inv
   vi.spyOn(directoryApi, "contacts").mockResolvedValue([person(201), person(202)]);
   vi.spyOn(membershipApi, "categories").mockResolvedValue([category(201)]);
   page = await mountWorkspace(<DirectoryPage />, { role: "organizer" });await waitForPage(page);
-  expect(badges()).toEqual(["Джуниор", "Категория недоступна"]);
+  expect(badges()).toEqual(["Джун", "Категория недоступна"]);
   expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("Часть категорий недоступна");
   await change(categorySelect(), "activist");
   expect(page.container.querySelectorAll('[class*="contactGrid"] > section')).toHaveLength(0);
@@ -52,13 +52,13 @@ it("drops forbidden cached categories and refetches the single batch on retry", 
   vi.spyOn(directoryApi, "contacts").mockResolvedValue([person(201)]);
   const batch = vi.spyOn(membershipApi, "categories").mockResolvedValue([category(201)]);
   page = await mountWorkspace(<DirectoryPage />, { role: "organizer" });await waitForPage(page);
-  expect(badges()).toEqual(["Джуниор"]);
+  expect(badges()).toEqual(["Джун"]);
   batch.mockRejectedValueOnce(new ApiError("Access ended", 403, "forbidden"));
   await act(async () => { await page!.client.invalidateQueries({ queryKey: ["participantCategory"] }); });await waitForPage(page);
   expect(badges()).toEqual(["Категория недоступна"]);
   const retry = Array.from(page.container.querySelectorAll("button")).find(b => b.textContent === "Повторить загрузку категорий")!;
   await act(async () => retry.click());await waitForPage(page);
-  expect(badges()).toEqual(["Джуниор"]);expect(batch).toHaveBeenCalledTimes(3);
+  expect(badges()).toEqual(["Джун"]);expect(batch).toHaveBeenCalledTimes(3);
 });
 
 it("reads a fresh individual category only when management opens and preserves reason/revision save", async () => {

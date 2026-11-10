@@ -634,6 +634,7 @@ export function installMockTransport(
       state.registration.attempts_used++;
       state.registration.total_submissions++;
       state.registration.status = "pending";
+      state.registration.decision = null;
       state.session.registration_status = "pending";
       state.registration.capabilities = [];
       return changed(state.registration);
@@ -2230,6 +2231,7 @@ export function installMockTransport(
       else {
         queueApplication.status =
           parts[2] === "approve" ? "approved" : "rejected";
+        queueApplication.decision = { outcome: queueApplication.status, actor: clone(state.user), at: new Date().toISOString() };
         queueApplication.rejection_reason = data.reason
           ? String(data.reason)
           : null;

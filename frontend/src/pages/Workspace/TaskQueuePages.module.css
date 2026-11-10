@@ -89,6 +89,9 @@
   .table td[data-label] span { overflow-wrap:break-word; }
   .table td[data-label]::before { display:block;content:attr(data-label);margin-bottom:6px;color:var(--on-surface-variant);font-size:11px;line-height:1.4; }
 }
+.deletion { margin-top:24px;padding-top:20px;border-top:1px solid var(--outline-variant);max-width:720px; }
+.deletion h2 { font-size:18px; }
+.deletion p { line-height:1.6;color:var(--on-surface-variant); }
 /* The season pill is smaller on a phone; in a catalogue cell its state takes its own line, without the separator. */
 @media(max-width:768px) {
   .seasonPill { font-size:11px;padding:4px 9px; }

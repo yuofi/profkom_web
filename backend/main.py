@@ -2935,6 +2935,12 @@ def patch_task_queue(queue_id: str,payload: TaskQueuePatchIn,cur: User = Depends
     return task_queues.patch(queue_id,cur.user_id,**values)
 
 
+@router.delete("/task-queues/{queue_id}")
+def delete_task_queue(queue_id: str,payload: SeasonRevisionIn,cur: User = Depends(get_current_user)):
+    import task_queues
+    return task_queues.delete(queue_id,cur.user_id,payload.expected_revision)
+
+
 @router.post("/task-queues/{queue_id}/access-requests")
 def request_task_queue_access(queue_id: str,payload: TaskQueueRequestIn,cur: User = Depends(get_current_user)):
     import task_queues

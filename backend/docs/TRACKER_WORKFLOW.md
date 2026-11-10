@@ -93,6 +93,13 @@ weekly trends and closed-work source statistics.
 
 ## Queues, sources and access
 
+Queue removal is logical and revision-protected: the catalogue and new-task choices
+omit it, while existing tasks, accounting, direct queue links and owner-managed grant
+revocation remain available. Chair/deputies, HR master, scoped masters/responsibles,
+the explicit owner and service account may remove a readable ordinary queue; KKR and
+support queues are protected. See [QUEUE_DELETION.md](QUEUE_DELETION.md) for migration,
+default-queue recreation, retained ACL, pending requests and rollback semantics.
+
 New queues always bind to an accounting source. Block masters/deputies may create
 in their block; main-event heads/deputies in their event (default) or its children;
 subevent responsibles/deputies in their subevent; chair/deputies may choose any

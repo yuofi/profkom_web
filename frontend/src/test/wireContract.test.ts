@@ -67,6 +67,9 @@ it("checks the stage 2 VK link in the session and the application, including nul
   expect(wireIssues("RegistrationApplication", { ...application, bot_link: { state: "ok", vk_user_id: 123456 } })).toEqual([]);
   expect(wireIssues("RegistrationApplication", { ...application, bot_link: { state: "none", vk_user_id: null } })).toEqual([]);
   expect(wireIssues("RegistrationApplication", { ...application, bot_link: null })).toEqual([]);
+  expect(wireIssues("RegistrationApplication", { ...application, decision: { outcome: "approved", actor: { user_id: 5, display_name: "Проверяющий", avatar_url: null }, at: "2026-11-10T08:12:00Z" } })).toEqual([]);
+  expect(wireIssues("RegistrationApplication", { ...application, decision: { outcome: "rejected", actor: null, at: null } })).toEqual([]);
+  expect(wireIssues("RegistrationApplication", { ...application, decision: { outcome: "approved", actor: null, at: null, raw_history: [] } })).not.toEqual([]);
   expect(wireIssues("RegistrationApplication", { ...application, bot_link: { state: "ok", vk_user_id: 1, token: "x" } })).toEqual([expect.stringMatching(/^RegistrationApplication\.bot_link: expected /)]);
   expect(wireIssues("ApplicationBotLink", { state: "ok", vk_user_id: 1, token: "x" })).toContain("ApplicationBotLink.token: unexpected field");
   expect(wireIssues("SessionBotLink", { ...link, vk_user_id: 1 })).toContain("SessionBotLink.vk_user_id: unexpected field");

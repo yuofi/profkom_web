@@ -338,6 +338,11 @@ export interface RegistrationFields {
   funding: "budget" | "contract" | null;
   residence: string;
 }
+export interface RegistrationDecision {
+  outcome: "approved" | "rejected";
+  actor: UserRef | null;
+  at: string | null;
+}
 export interface RegistrationApplication extends Versioned {
   user_id: number;
   status: "pending" | "approved" | "rejected";
@@ -349,6 +354,8 @@ export interface RegistrationApplication extends Versioned {
   /** The applicant's VK link (stage 2); null while the integration is off. A pending
    *  application is ready for review only with all fields and state `ok`. */
   bot_link?: ApplicationBotLink | null;
+  /** Saved decision of this submission; historical gaps are not reconstructed. */
+  decision?: RegistrationDecision | null;
 }
 export interface ApplicationBotLink {
   state: BotLinkState;
@@ -482,6 +489,8 @@ export interface TaskQueueRef {
   key: string;
 }
 export interface TaskQueue extends TaskQueueRef {
+  /** Removed from the catalogue; retained tasks and existing grant revocation stay accessible. */
+  deleted_at?: string;
   access: "granted" | "locked";
   capabilities: string[];
   can_request_access: boolean;

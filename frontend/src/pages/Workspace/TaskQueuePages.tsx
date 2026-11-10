@@ -96,7 +96,15 @@ function QueueHeader({ queue }: { queue: TaskQueue }) {
   return <><BrandedHeader className={s.header}><div><TrackerHomeLink /><nav className={s.breadcrumbs} aria-label="Навигация очереди"><Link to={getTaskQueuesRoute()}>Очереди</Link><span aria-hidden="true">›</span><span>{queue.name}</span></nav>
     <div className={s.titleRow}><h1 className={w.title}>{queue.name}</h1>{(team || queue.season) && <span className={s.titleChips}>{team}{queue.season && <SeasonPill season={queue.season} />}</span>}</div>
     <p><span className={s.key}>{queue.key}</span> · {queue.is_private ? "Закрытая очередь" : queue.scope ? "Для участников команды" : "Для всех активных пользователей"}</p>
-    {queue.owner && <div className={s.facts}><Owner user={queue.owner} /></div>}</div><RouteLink to="/tasks">Все задачи</RouteLink></BrandedHeader>{queue.owner_unavailable && <p role="status" className={w.warning}>Владелец очереди недоступен. Передача владения ожидает доступного руководителя.</p>}{can(queue, "manage_queue") && <details className={s.manage}><summary>Настройки очереди и доступ</summary><div className={s.manageBody}><QueueEditor queue={queue} /><QueueRequests queue={queue} /></div></details>}</>;
+    {queue.owner && <div className={s.facts}><Owner user={queue.owner} /></div>}</div><RouteLink to="/tasks">Все задачи</RouteLink></BrandedHeader>{queue.deleted_at && <p role="status" className={w.warning}>Очередь удалена {displayDate(queue.deleted_at)}. Здесь сохранены её задачи и история. Новые задачи и запросы доступа не принимаются; владелец по-прежнему может отозвать выданный доступ.</p>}{queue.owner_unavailable && <p role="status" className={w.warning}>Владелец очереди недоступен. Передача владения ожидает доступного руководителя.</p>}{(can(queue, "manage_queue") || can(queue, "delete_queue") || can(queue, "view_queue_requests")) && <details className={s.manage}><summary>Настройки очереди и доступ</summary><div className={s.manageBody}>{can(queue, "manage_queue") && <QueueEditor queue={queue} />}<QueueRequests queue={queue} />{can(queue, "delete_queue") && <QueueDelete queue={queue} />}</div></details>}</>;
+}
+function QueueDelete({ queue }: { queue: TaskQueue }) {
+  const { perform, refresh } = useWorkspaceActions();const navigate = useNavigate();
+  return <section className={s.deletion}><h2>Удаление очереди</h2><p>Очередь исчезнет из списка. Задачи, ККР и история сохранятся: задачи останутся в разделе «Все задачи» с прежними правами доступа. Из задачи можно открыть удалённую очередь и отозвать выданный доступ. Ключ очереди останется занят. Служебные очереди ККР и поддержки удалить нельзя.</p>
+    <ActionForm fields={[]} revision={queue.revision!} record={`task-queue:${queue.queue_id}`} onConflict={refresh} submitLabel="Удалить очередь" variant="danger" allowExitSave={false}
+      confirm={{ text: <>Удалить очередь «{queue.name}» ({queue.key})? Новые задачи и запросы доступа в ней станут недоступны. Ожидающие запросы будут отменены. Существующие задачи и ККР сохранятся.</>, label: "Да, удалить очередь" }}
+      onSubmit={async (_, revision) => { await perform(() => taskQueuesApi.delete(queue.queue_id, revision!));navigate(getTaskQueuesRoute(), { replace: true }); }} />
+  </section>;
 }
 function Owner({ user }: { user: UserRef }) {
   return <div className={s.owner}><small>Владелец очереди</small><UserChip user={user} /></div>;
@@ -150,7 +158,7 @@ function QueueRequests({ queue }: { queue: TaskQueue }) {
 }
 function QueueRequest({ queue, item }: { queue: TaskQueue; item: TaskQueueAccessRequest }) {
   const { perform, refresh } = useWorkspaceActions();
-  const states: Record<string,string> = { pending: "Ожидает решения", approved: "Доступ одобрен", rejected: "Отклонён", revoked: "Доступ отозван", cancelled: "Отозван заявителем" };
+  const states: Record<string,string> = { pending: "Ожидает решения", approved: "Доступ одобрен", rejected: "Отклонён", revoked: "Доступ отозван", cancelled: "Запрос отменён" };
   return <article className={s.request}><div><UserChip user={item.user} /><span>{item.status === "approved" && item.access_granted === false ? "Доступ отозван" : states[item.status]}</span><time dateTime={item.created_at}>{displayDate(item.created_at)}</time>{item.message && <p>{item.message}</p>}</div><div className={s.requestActions}>
     {can(item, "approve_queue_access") && <ActionForm fields={[]} revision={item.revision} onConflict={refresh} submitLabel="Одобрить доступ" allowExitSave={false} onSubmit={async (_, revision) => { const saved = await perform(() => taskQueuesApi.decide(queue.queue_id, item.request_id, "approve", revision!));return saved; }} />}
     {can(item, "reject_queue_access") && <ActionForm fields={[]} revision={item.revision} onConflict={refresh} submitLabel="Отклонить запрос" variant="quiet" allowExitSave={false} onSubmit={async (_, revision) => { const saved = await perform(() => taskQueuesApi.decide(queue.queue_id, item.request_id, "reject", revision!));return saved; }} />}

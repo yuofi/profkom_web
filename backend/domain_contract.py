@@ -34,6 +34,12 @@ class RegistrationBotLink(BaseModel):
     vk_user_id: int | None
 
 
+class RegistrationDecision(BaseModel):
+    outcome: Literal["approved", "rejected"]
+    actor: UserReference | None
+    at: str | None
+
+
 class RegistrationApplication(BaseModel):
     user_id: int
     status: Literal["pending", "approved", "rejected"]
@@ -46,6 +52,7 @@ class RegistrationApplication(BaseModel):
     capabilities: list[str]
     # None while the bot integration is off
     bot_link: RegistrationBotLink | None = None
+    decision: RegistrationDecision | None = None
 
 
 class BlockRequestApproval(BaseModel):

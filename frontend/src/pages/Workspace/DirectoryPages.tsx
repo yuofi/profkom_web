@@ -9,7 +9,6 @@ import {
   QueryState,
   RouteLink,
   Empty,
-  Badge,
   Glyph,
   ErrorState,
 } from "../../components/Workspace/WorkspaceUI";
@@ -37,10 +36,14 @@ const matchesSearch = (parts: (string | number | null | undefined)[], query: str
   const haystack = searchable(parts.filter((part) => part !== null && part !== undefined).join(" "));
   return searchable(query).split(/\s+/).filter(Boolean).every((word) => haystack.includes(word));
 };
-function Category({ category, pending }: { category?: ParticipantCategory; pending: boolean }) {
-  return category ? (
-    <Badge tone={category.category === "junior" ? "mint" : undefined}>{category.category === "junior" ? "Джуниор" : "Активист"}</Badge>
-  ) : <span>{pending ? "Категория загружается…" : "Категория недоступна"}</span>;
+function Category({ category, pending, chair, deputy, master, leadershipKnown, blocksKnown, rolesPending }: { category?: ParticipantCategory; pending: boolean; chair: boolean; deputy: boolean; master: boolean; leadershipKnown: boolean; blocksKnown: boolean; rolesPending: boolean }) {
+  // A category is not necessarily the highest role while a higher rank is unknown.
+  if (!leadershipKnown || (!chair && !deputy && !blocksKnown))
+    return <span>{rolesPending ? "Роль загружается…" : "Роль недоступна"}</span>;
+  const role = chair ? "chair" : deputy ? "deputy" : master ? "master" : category?.category;
+  const labels = { chair: "Председатель", deputy: "Зам председателя", master: "Мастер", activist: "Активист", junior: "Джун" };
+  return role ? <span className={`${s.badge} ${d.roleBadge}`} data-contact-role={role}>{labels[role]}</span>
+    : <span>{pending ? "Категория загружается…" : "Категория недоступна"}</span>;
 }
 function ContactLinks({
   email,
@@ -200,7 +203,7 @@ export function DirectoryPage() {
                 onChange={(e) => setCategory(e.target.value)}
               >
                 <option value="">Все категории</option>
-                <option value="junior">Джуниоры</option>
+                <option value="junior">Джуны</option>
                 <option value="activist">Активисты</option>
               </select>
             </label>
@@ -294,6 +297,10 @@ export function DirectoryPage() {
             Роли руководства не удалось обновить. <button type="button" className={s.button}
               onClick={() => { void leadership.refetch(); }}>Повторить загрузку ролей</button>
           </div>}
+          {blockDirectory.isError && <div role="alert" className={s.muted}>
+            Блоки и должности мастеров не удалось обновить. <button type="button" className={s.button}
+              onClick={() => { void blockDirectory.refetch(); }}>Повторить загрузку блоков</button>
+          </div>}
           {filtered && filtered.length > 0 && (
             <p className={s.results} role="status">
               Показано контактов: {filtered.length} из {active.length}
@@ -329,7 +336,11 @@ export function DirectoryPage() {
                   {/* The whole card opens the profile, so it has no «Подробнее» row: the account management
                    * is a small button in the lower right corner, above the stretched link like the block links (D-08). */}
                   <div className={d.side}>
-                    <div className={d.category}><Category category={categoryByUser.get(p.user_id)} pending={categoriesPending} /></div>
+                    <div className={d.category}><Category category={categoryByUser.get(p.user_id)} pending={categoriesPending}
+                      chair={leaders?.chair?.user_id === p.user_id} deputy={!!leaders?.deputies.some(person => person.user_id === p.user_id)}
+                      master={blockCards.some(block => block.master?.user.user_id === p.user_id)} leadershipKnown={!!leaders}
+                      blocksKnown={!!blockDirectory.data && (!blockDirectory.error || canRetainData(blockDirectory.error))}
+                      rolesPending={leadership.isPending || blockDirectory.isPending} /></div>
                     {mayManage(p.user_id) && <button className={d.manage} type="button" onClick={() => setSelected({ id: p.user_id, mode: "manage" })}>Управление аккаунтом</button>}
                   </div>
                 </div>
