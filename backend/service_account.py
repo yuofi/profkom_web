@@ -213,6 +213,9 @@ def reserve(ip, at=None):
         if row.count >= THROTTLE_LIMIT:
             return None
         row.count += 1
+        # Autoflush is disabled: persist the new window before the bulk cleanup,
+        # or it deletes this client's still-expired DB row before the UPDATE.
+        session.flush()
         session.query(T).filter(T.window < window - 1).delete(synchronize_session=False)
         session.commit()
         return window
