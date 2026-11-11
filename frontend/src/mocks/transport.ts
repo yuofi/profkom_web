@@ -9,6 +9,7 @@ import { broadcastMock } from "./broadcasts";
 import { botConsoleMock } from "./botConsole";
 import { meritJournalMock } from "./meritJournal";
 import { blockLifecycleMock } from "./blockLifecycle";
+import { registrationFieldsSchema } from "../utils/contactFields";
 import {
   emptyCriteria,
   richText,
@@ -211,6 +212,7 @@ export function installMockTransport(
     user_id: 105,
     status: "pending" as typeof state.registration.status,
     capabilities: ["reset_registration_limit"],
+    fields: { ...clone(state.registration.fields), patronymic: null, no_patronymic: true },
     // A ready application: the applicant has linked the bot (stage 2).
     bot_link: { state: "ok" as BotLinkState, vk_user_id: mockVkId(105) } as typeof state.registration.bot_link,
   };
@@ -629,9 +631,11 @@ export function installMockTransport(
       if (method === "patch") {
         if (state.registration.status === "approved") return denied();
         if (mismatch(data, state.registration)) return conflict();
-        state.registration.fields = clone(
-          data.fields as typeof state.registration.fields,
-        );
+        const parsed = registrationFieldsSchema.safeParse(data.fields);
+        if (!parsed.success) return fail(422, "validation_error", "Проверьте сведения", {
+          errors: parsed.error.issues.map(issue => ({ loc: ["fields", ...issue.path], msg: issue.message })),
+        });
+        state.registration.fields = clone(parsed.data);
         return changed(state.registration);
       }
       return [200, clone(state.registration)];
@@ -639,6 +643,8 @@ export function installMockTransport(
     if (path === "/registrations/me/resubmit") {
       if (mismatch(data, state.registration)) return conflict();
       if (state.registration.status !== "rejected") return conflict();
+      if (!registrationFieldsSchema.safeParse(state.registration.fields).success)
+        return fail(422, "validation_error", "Заполните все обязательные поля регистрации");
       if (state.registration.bot_link && state.registration.bot_link.state !== "ok")
         return fail(409, "bot_link_required", "The VK link is not ready");
       if (state.registration.attempts_used >= 5)
@@ -2261,6 +2267,8 @@ export function installMockTransport(
         return list(!status || status === queueApplication.status ? [clone(queueApplication)] : []);
       }
       if (mismatch(data, queueApplication)) return conflict();
+      if (parts[2] === "approve" && !registrationFieldsSchema.safeParse(queueApplication.fields).success)
+        return fail(422, "validation_error", "Заполните все обязательные поля регистрации");
       if (parts[2] === "approve" && queueApplication.bot_link && queueApplication.bot_link.state !== "ok")
         return fail(409, "bot_link_required", "The application is not ready");
       if (parts[2] === "reset-attempts") queueApplication.attempts_used = 0;

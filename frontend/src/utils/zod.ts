@@ -1,5 +1,5 @@
 import {z} from 'zod'
-import { telegramField, vkField, patronymicField, isValidGroupNumber } from './contactFields';
+import { telegramField, vkField, patronymicField, patronymicDecision, isValidGroupNumber } from './contactFields';
 
 export { isValidGroupNumber };
 
@@ -16,8 +16,9 @@ export const SignUpValidationSchema = z.object({
     name: z.string().min(1, "Имя не может быть пустым"),
     surname: z.string().min(1, "Фамилия не может быть пустым"),
     patronymic: patronymicField,
+    no_patronymic: z.boolean().default(false),
 
-})
+}).superRefine(patronymicDecision)
 .refine((data) => data.password === data.passwordAgain, {
     message: "Пароли не совпадают",
     path: ["passwordAgain"]  

@@ -30,13 +30,18 @@ export const isValidGroupNumber = (value: string | number) => {
 };
 export const groupNumberMessage = "Номер группы должен быть числом от 100 до 700";
 export const patronymicField = z.preprocess(value => value ?? "", z.string().trim());
+export function patronymicDecision(data: { patronymic: string | null; no_patronymic: boolean }, ctx: z.RefinementCtx) {
+  if (data.no_patronymic && data.patronymic) ctx.addIssue({ code: "custom", path: ["patronymic"], message: "Уберите отчество или снимите галочку «У меня нет отчества»" });
+  if (!data.no_patronymic && !data.patronymic) ctx.addIssue({ code: "custom", path: ["patronymic"], message: "Укажите отчество или отметьте «У меня нет отчества»" });
+}
 export const registrationFieldsSchema = z.object({
   surname: z.string().trim().min(1).max(100), name: z.string().trim().min(1).max(100),
-  patronymic: patronymicField.transform(value => value || null),
+  patronymic: patronymicField.pipe(z.string().max(100)).transform(value => value || null),
+  no_patronymic: z.boolean().default(false),
   group_number: z.string().trim().refine(isValidGroupNumber, groupNumberMessage), phone: z.string().trim().min(1).max(40),
   email: z.email(), tg: telegramField.refine(Boolean, "Укажите Telegram"), vk: vkField.refine(Boolean, "Укажите VK"),
   funding: z.enum(["budget", "contract"], "Выберите основу обучения"), residence: z.string().trim().min(1).max(500),
-});
+}).superRefine(patronymicDecision);
 export const registrationLabels = {
   surname: "Фамилия",
   name: "Имя",

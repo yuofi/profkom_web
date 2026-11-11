@@ -296,9 +296,10 @@ def run_auth(api: Api, rep: Report, args) -> Optional[str]:
         "name": "Проверка",
         "surname": f"Скрипт{ident[:4]}",
         "patronymic": "",
+        "no_patronymic": True,
         "group_number": 101,
         "tg": f"hc_{ident}",
-        # Every field but the patronymic is required at the sign-up (decision 29).
+        # A blank patronymic needs the explicit absence decision above.
         "phone": "+79990000000",
         "vk": "https://vk.com/id1",
         "funding": "budget",

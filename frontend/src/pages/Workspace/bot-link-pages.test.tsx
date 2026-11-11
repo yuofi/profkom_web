@@ -137,6 +137,7 @@ it("puts the «Бот ВКонтакте» block in the profile settings, before
 
 it("makes the bot a required step of a pending registration, and the demo bot completes it", async () => {
   mock = installMockTransport("pending", { delay: 0 });
+  mock.state.registration.fields.no_patronymic = true;
   page = await mountWorkspace(<AccountStatePage />, { session: structuredClone(mock.state.session) });
   await waitForPage(page, () => text().includes("Бот не привязан."));
   expect(page.container.querySelector('[role="status"]')?.textContent).toBe("Привяжите бота ВКонтакте ниже. Заявка уйдёт на рассмотрение, когда все сведения будут сохранены и бот будет привязан.");
@@ -154,6 +155,7 @@ it("makes the bot a required step of a pending registration, and the demo bot co
 
 it("asks a rejected applicant to link the bot before sending again", async () => {
   mock = installMockTransport("rejected", { delay: 0 });
+  mock.state.registration.fields.no_patronymic = true;
   page = await mountWorkspace(<AccountStatePage />, { session: structuredClone(mock.state.session) });
   await waitForPage(page, () => text().includes("Бот не привязан."));
   expect(text()).toContain("Перед повторной отправкой привяжите бота ВКонтакте ниже.");
@@ -164,6 +166,7 @@ it("asks a rejected applicant to link the bot before sending again", async () =>
 
 it("keeps the registration screen as it was while the integration is off", async () => {
   mock = installMockTransport("pending", { delay: 0, bot: "off" });
+  mock.state.registration.fields.no_patronymic = true;
   page = await mountWorkspace(<AccountStatePage />, { session: structuredClone(mock.state.session) });
   await waitForPage(page);
   expect(text()).toContain("Дождитесь решения руководства Профкома.");

@@ -167,7 +167,7 @@ it("2.12 A-FE-2: a subevent's organizers and then its description save without a
 
 it("2.12 A-FE-2: a returned registration saves its details and is resubmitted without a conflict", async () => {
   const email = `integration-resubmit-${crypto.randomUUID()}@example.com`;
-  const registered = await authApi.register({ email, password: livePassword, surname: "Тестовый", name: "Повторная", patronymic: "",
+  const registered = await authApi.register({ email, password: livePassword, surname: "Тестовый", name: "Повторная", patronymic: "", no_patronymic: true,
     group_number: 301, tg: "@profkom_test", phone: "+79990000000", vk: "https://vk.com/id123", funding: "budget", residence: "Тест" });
   Cookies.set("access_token", registered.data.access_token);
   const user = await sessionApi.get();
@@ -178,8 +178,10 @@ it("2.12 A-FE-2: a returned registration saves its details and is resubmitted wi
   await mount("/", "/", <AccountStatePage />);
   await until(() => !!form("Повторно отправить заявку"));
   expect(page!.container.textContent).toContain("Использовано отправок: 1 из 5");
-  const details = form("Сохранить сведения");
+  const details = page!.container.querySelector("form")!;
+  await submit(details); await until(() => !!details.querySelector('[name="residence"]'));
   await change(field(details, "residence"), "Общежитие №2");
+  await submit(details); await until(() => !!details.querySelector('[name="phone"]'));
   await save(details);
   expect(form("Повторно отправить заявку").textContent).not.toContain("Запись изменилась на сервере");
   await submit(form("Повторно отправить заявку"));

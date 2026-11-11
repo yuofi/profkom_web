@@ -16,13 +16,13 @@ from bot_models import BotLinkORM
 import bot_link
 import contact_rules
 import access
+from registration_fields import PatronymicChoice
 
 
-class Fields(BaseModel):
+class Fields(PatronymicChoice):
     model_config = ConfigDict(extra="forbid")
     surname: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=100)
-    patronymic: str | None = None
     group_number: str = Field(min_length=1, max_length=30)
     phone: str = Field(min_length=1, max_length=40)
     email: EmailStr
@@ -190,7 +190,7 @@ def dto(s, r, uid, link=None, actors=None):
         caps.append("resubmit_registration")
     if access.allowed(uid, "registration.review"):
         if r.status == "pending":
-            caps += (["approve_registration"] if not on or ready(r, state) else []) + ["reject_registration"]
+            caps += (["approve_registration"] if ready(r, state) else []) + ["reject_registration"]
         if r.status != "approved":
             caps += ["reset_registration_limit"]
     decision = saved_decision(r)

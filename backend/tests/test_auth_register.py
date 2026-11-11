@@ -254,9 +254,10 @@ def test_пустые_имя_или_фамилия_дают_422(client, name, su
     assert row_counts()["users"] == 0, "Неполная регистрация не должна создавать пользователя"
 
 
-def test_отчество_необязательно(client):
-    """Без отчества регистрация проходит, отчество пустое."""
+def test_отсутствие_отчества_требует_явного_подтверждения(client):
+    """Явное подтверждение отсутствия отчества разрешает пустое значение."""
     payload = {k: v for k, v in VALID_BODY.items() if k != "patronymic"}
+    payload["no_patronymic"] = True
     response = client.post(REGISTER_URL, json=payload)
 
     assert response.status_code == 201, f"Ожидали 201, получили {response.status_code}: {response.text}"
@@ -388,12 +389,12 @@ def test_отсутствие_обязательного_поля_даёт_422(c
 
 
 def test_пустое_тело_перечисляет_все_обязательные_поля(client):
-    """Пустой JSON → 422 со всеми обязательными полями: все, кроме отчества (решение 29)."""
+    """Пустой JSON сообщает и об отсутствующем решении по отчеству."""
     response = client.post(REGISTER_URL, json={})
 
     assert response.status_code == 422, f"Ожидали 422, получили {response.status_code}"
     missing = {loc[1] for loc in error_locations(response)}
-    assert missing == set(["email", "password", "group_number", "tg", "surname", "name", "phone", "vk", "residence", "funding"]), (
+    assert missing == set(["email", "password", "group_number", "tg", "surname", "name", "patronymic", "phone", "vk", "residence", "funding"]), (
         f"Ожидали ошибки по всем обязательным полям, получили {missing}"
     )
 

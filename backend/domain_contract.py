@@ -19,6 +19,7 @@ class RegistrationFields(BaseModel):
     surname: str
     name: str
     patronymic: str | None
+    no_patronymic: bool = False
     group_number: str
     phone: str
     email: str

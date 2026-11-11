@@ -156,7 +156,7 @@ describe("Rendered authorization with a deliberately stale private cache", () =>
       const html = renderPage(role, <ProtectedRoute />, "/", "*");
       expect(html).toContain(
         role === "pending"
-          ? "Заявка на рассмотрении"
+          ? "Давайте знакомиться"
           : "Нужно уточнить сведения",
       );
       expect(html).not.toContain("Мои задачи");

@@ -579,6 +579,7 @@ export function createFixtures(role: MockRole = "organizer") {
       surname: profile.surname,
       name: profile.name,
       patronymic: null,
+      no_patronymic: false,
       group_number: "321",
       phone: profile.phone,
       email: profile.email,

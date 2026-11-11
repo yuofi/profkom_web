@@ -25,7 +25,7 @@ export async function liveLogin(email = "chair@example.com") {
 export async function liveParticipant(label: string) {
   const email = `integration-${label}-${crypto.randomUUID()}@example.com`;
   const response = await authApi.register({ email, password: livePassword,
-    surname: "Тестовый", name: label, patronymic: "", group_number: 301, tg: "@profkom_test",
+    surname: "Тестовый", name: label, patronymic: "", no_patronymic: true, group_number: 301, tg: "@profkom_test",
     phone: "+79990000000", vk: "https://vk.com/id123", funding: "budget", residence: "Тест" });
   Cookies.set("access_token", response.data.access_token);
   const pending = await sessionApi.get();

@@ -48,6 +48,7 @@ export interface Field {
   whenSelected?: { name: string; value: string };
   /** Shown only while this holds for the current values; a hidden field is not validated. */
   visibleWhen?: (values: Values) => boolean;
+  disabledWhen?: (values: Values) => boolean;
   /** A field whose change also sets other fields: given the values after its change, the values to set in one step. */
   onChangeValues?: (values: Values) => Values;
   onSelectionChange?: (values: string[]) => void;
@@ -141,9 +142,19 @@ export function ActionForm({
   confirm,
   actions,
   failureActions,
+  requiredIndicator = "asterisk",
+  steps,
+  stepHint,
+  validateValues,
 }: {
   title?: string;
   fields: Field[];
+  /** Registration uses a visible word instead of a small asterisk. */
+  requiredIndicator?: "asterisk" | "text" | "none";
+  /** One draft and one final save; changing steps never sends a request. */
+  steps?: readonly { title: string; fields: readonly string[] }[];
+  stepHint?: ReactNode;
+  validateValues?: (values: Values) => Record<string, string>;
   submitLabel?: string;
   /** The submit's full name, its tooltip and accessible name, when its label is one short word
    *  in a row of a list, e.g. «Убрать» for «Убрать из состава: …» (D-05). */
@@ -186,6 +197,11 @@ export function ActionForm({
   failureActions?: (failure: ApiError, form: FormikProps<Values>) => ReactNode;
 } & Versioning) {
   const formId = useId();
+  const formElement = useRef<HTMLFormElement>(null);
+  const stepHeading = useRef<HTMLHeadingElement>(null);
+  const [step, setStep] = useState(0);
+  const lastStep = !steps || step === steps.length - 1;
+  const [processedSubmit, setProcessedSubmit] = useState(0);
   const submitted = useRef(false);
   // A successful save clears the leave warning, but its editor still holds the
   // values/revision it accepted. A foreign refetch must not silently adopt a
@@ -282,11 +298,9 @@ export function ActionForm({
     validate: (values) => {
       const current = { ...initialValues, ...values };
       const result = schema(current).safeParse(current);
-      return result.success
-        ? {}
-        : Object.fromEntries(
-            result.error.issues.map((i) => [String(i.path[0]), i.message]),
-          );
+      return { ...(result.success ? {} : Object.fromEntries(
+        result.error.issues.map((i) => [String(i.path[0]), i.message]),
+      )), ...validateValues?.(values) };
     },
     onSubmit: async (draft) => {
       submitted.current = false;
@@ -382,6 +396,36 @@ export function ActionForm({
       setExternalBaseline(JSON.stringify(savedExternalState ?? externalState));
     },
   });
+  const focusField = (name: string) => requestAnimationFrame(() => {
+    const input = formElement.current?.elements.namedItem(name);
+    if (input instanceof HTMLElement) input.focus();
+  });
+  const goToStep = (next: number) => {
+    setStep(next);
+    requestAnimationFrame(() => stepHeading.current?.focus());
+  };
+  const nextStep = async () => {
+    const errors = await form.validateForm();
+    const names = steps![step].fields;
+    const invalid = names.find(name => errors[name]);
+    if (invalid) {
+      await form.setTouched({ ...form.touched, ...Object.fromEntries(names.map(name => [name, true])) }, false);
+      focusField(invalid);
+    } else goToStep(step + 1);
+  };
+  // A full save (also Ctrl+S / navigation save) may fail on an earlier step.
+  // Visit it only once per attempt; normal edits must never pull the user backwards.
+  if (steps && !form.isSubmitting && !form.isValidating && processedSubmit !== form.submitCount) {
+    setProcessedSubmit(form.submitCount);
+    const failedStep = steps.findIndex(item => item.fields.some(name => !!form.errors[name]));
+    if (form.submitCount && failedStep >= 0) setStep(failedStep);
+  }
+  useEffect(() => {
+    if (steps && form.submitCount && !form.isSubmitting && !form.isValidating) {
+      const invalid = steps[step].fields.find(name => !!form.errors[name]);
+      if (invalid) focusField(invalid);
+    }
+  }, [steps, step, form.submitCount, form.isSubmitting, form.isValidating, form.errors]);
   const currentValues = { ...initialValues, ...form.values };
   const question = confirm && (typeof confirm.text === "function" ? confirm.text(currentValues) : confirm.text);
   const awaitingCommand = !!confirm && question !== null && pendingCommand !== null && pendingCommand === JSON.stringify(currentValues);
@@ -403,7 +447,10 @@ export function ActionForm({
     setExpectedRevision(revision); setExpectedRevisionKey(revisionKey); setFailure(null); setMessage("");
   };
   return (
-    <form className={s.form} onSubmit={form.handleSubmit} noValidate onKeyDown={(event) => {
+    <form ref={formElement} className={s.form} onSubmit={event => {
+      if (!lastStep) { event.preventDefault(); void nextStep(); }
+      else form.handleSubmit(event);
+    }} noValidate onKeyDown={(event) => {
       if (editorShortcut(event) === "s") {
         event.preventDefault();
         if (allowExitSave && variant !== "danger" && (fields.length > 0 || externalState !== undefined) && !disabled && !externalBusy && !form.isSubmitting) void form.submitForm();
@@ -414,9 +461,16 @@ export function ActionForm({
         disabled={form.isSubmitting || refreshing || disabled || externalBusy}
       >
         {title && <h3>{title}</h3>}
+        {steps && <>
+          <ol className={s.formProgress} aria-label="Ход заполнения">
+            {steps.map((item, index) => <li key={item.title} aria-current={index === step ? "step" : undefined} data-complete={index <= step} aria-label={`${index + 1}. ${item.title}`} />)}
+          </ol>
+          <div className={s.formStepHeading}><h2 ref={stepHeading} tabIndex={-1}>{steps[step].title}</h2><span>Шаг {step + 1} из {steps.length}</span></div>
+          {stepHint}
+        </>}
         {beforeFields?.(form)}
         {fields
-          .filter((field) => visible(field, form.values))
+          .filter((field) => visible(field, form.values) && (!steps || steps[step].fields.includes(field.name)))
           .map((field, index, shown) => {
             if (criterion(field)) {
               if (criterion(shown[index - 1])) return null;
@@ -444,7 +498,7 @@ export function ActionForm({
               "aria-invalid": !!error,
               "aria-describedby": error ? `${id}-error` : undefined,
               required: isRequired(field, form.values),
-              disabled: form.isSubmitting,
+              disabled: form.isSubmitting || !!field.disabledWhen?.(form.values),
             };
             if (field.type === "checkbox") return (
               <div className={`${s.field} ${s.checkField} ${compact}`} key={field.name}>
@@ -478,7 +532,9 @@ export function ActionForm({
                   htmlFor={field.type === "multi" && !entityPicker ? `${id}-search` : id}
                 >
                   {field.label}
-                  {isRequired(field, form.values) ? " *" : ""}
+                  {isRequired(field, form.values) && requiredIndicator !== "none" && (requiredIndicator === "text"
+                    ? <span className={s.requiredTag} aria-hidden="true">Обязательно</span>
+                    : " *")}
                 </label>
                 {field.type === "multi" && entityPicker ? (
                   <EntityPicker {...pickerProps} multiple value={(form.values[field.name] as string[] | undefined) ?? []}
@@ -615,15 +671,16 @@ export function ActionForm({
             {message}
           </p>
         )}
-        <div className={actions ? s.row : undefined}>
+        <div className={steps ? s.formStepActions : actions ? s.row : undefined}>
+          {steps && <button type="button" className={s.button} disabled={step === 0} onClick={() => goToStep(step - 1)}>Назад</button>}
           <button
             className={`${s.button} ${variant === "primary" ? s.primary : variant === "danger" ? s.danger : ""}`}
             type="submit"
             aria-label={form.isSubmitting ? undefined : submitTitle}
             title={submitTitle}
-            disabled={form.isSubmitting || refreshing || disabled || unchanged || pendingRemoval.length > 0 || awaitingCommand || (versioned && (changedRevision || stale))}
+            disabled={form.isSubmitting || refreshing || disabled || (lastStep && (unchanged || pendingRemoval.length > 0 || awaitingCommand || (versioned && (changedRevision || stale))))}
           >
-            {form.isSubmitting ? "Сохраняем…" : submitLabel}
+            {form.isSubmitting ? "Сохраняем…" : !lastStep ? "Продолжить →" : submitLabel}
           </button>
           {actions}
         </div>

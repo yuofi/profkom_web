@@ -1,0 +1,15 @@
+.wizard { --border:color-mix(in srgb,var(--outline-variant) 20%,transparent); display:grid; grid-template-columns:minmax(0,1fr) 238px; overflow:hidden; background:var(--surface-container-low); border:1px solid var(--border); border-radius:22px; }
+.main { padding:31px 34px; min-width:0; }
+.side { padding:31px 24px; border-left:1px solid var(--border); background:color-mix(in srgb,var(--primary) 4%,var(--surface)); }
+.eyebrow { font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:var(--primary); }
+.side h2 { font-size:19px; line-height:1.35; margin:14px 0; }
+.side p { font-size:13px; color:color-mix(in srgb,var(--on-surface) 65%,transparent); line-height:1.7; }
+.account { display:flex; gap:10px; align-items:center; margin-top:24px; padding-top:21px; border-top:1px solid var(--border); overflow-wrap:anywhere; }
+.account>span { flex:none; width:34px; height:34px; display:grid; place-items:center; border-radius:50%; background:#cdb8f529; color:#d9caf7; font-size:12px; }
+.account strong { display:block; font-size:13px; }
+.account small { display:block; margin-top:5px; font-size:11px; color:color-mix(in srgb,var(--on-surface) 65%,transparent); }
+.hint { display:flex; gap:10px; padding:12px 14px; margin:0; background:color-mix(in srgb,var(--primary) 5%,transparent); border:1px solid color-mix(in srgb,var(--primary) 20%,transparent); border-radius:10px; font-size:13px; line-height:1.5; }
+.hint>span:first-child { flex:none; display:grid; place-items:center; width:17px; height:17px; border:1px solid currentColor; border-radius:50%; font-size:11px; margin-top:2px; }
+.saveNote { font-size:12px; line-height:1.6; color:color-mix(in srgb,var(--on-surface) 65%,transparent); margin:20px 0 0; }
+.main input:disabled { border-style:dashed; opacity:.5; }
+@media(max-width:768px) { .wizard { display:block; } .main { padding:23px 20px; } .side { display:none; } }

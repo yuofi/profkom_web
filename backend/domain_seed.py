@@ -33,6 +33,7 @@ def ensure_application(s, uid, funding=DERIVED, persist=True):
         surname=c.surname,
         name=c.name,
         patronymic=c.patronymic or None,
+        no_patronymic=False,
         group_number=c.group_number,
         phone=c.phone,
         email=c.email,

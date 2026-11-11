@@ -331,6 +331,8 @@ export interface RegistrationFields {
   surname: string;
   name: string;
   patronymic: string | null;
+  /** Explicit applicant decision; old missing data never implies consent. */
+  no_patronymic: boolean;
   group_number: string;
   phone: string;
   email: string;

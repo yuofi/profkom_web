@@ -11,6 +11,7 @@
 | --- | --- |
 | Понять продукт, роли и границы результата | [Архитектура и требования](../ARCHITECTURE.md) |
 | Пользоваться сайтом | [Памятка пользователя](USER_GUIDE.md) |
+| Проверить новое правило отчества и варианты формы регистрации | [Решение 11 ноября](decisions/2026-11-11-registration-patronymic.md) — локальная реализация и макеты |
 | Найти точный доменный контракт | [Каталог backend-документации](../backend/docs/README.md) |
 | Разрабатывать frontend | [Frontend README](../frontend/README.md), [каталог frontend-документации](../frontend/docs/README.md) |
 | Проверить изменения локально | [Backend TESTING](../backend/TESTING.md), [локальная среда](../.local/README.md) — последняя доступна только в этом checkout |

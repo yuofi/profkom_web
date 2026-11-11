@@ -74,7 +74,7 @@ def _register(live, approve):
     ident = uuid.uuid4().hex[:8]
     account = dict(
         email=f"check-live-{ident}@example.com", password=f"Cl-{ident}-Pw!", surname="Проверка",
-        name="Участник", patronymic="", group_number=301, tg=f"cl_{ident}", phone="+79990000000",
+        name="Участник", patronymic="", no_patronymic=True, group_number=301, tg=f"cl_{ident}", phone="+79990000000",
         vk="https://vk.com/id123", funding="budget", residence="Тест",
     )
     status, tokens = _call(live.url, "POST", "/api/auth/register", account)

@@ -16,6 +16,7 @@
 | Сервисный аккаунт: вход по логину, права, невидимость, уведомления о входе | [SERVICE_ACCOUNT](SERVICE_ACCOUNT.md) |
 | История и скрытие текстов версий | [HISTORY](HISTORY.md) |
 | Кто и когда одобрил или отклонил регистрацию | [REGISTRATION_DECISIONS](REGISTRATION_DECISIONS.md) |
+| Обязательное отчество или явное подтверждение его отсутствия | [Решение 11 ноября](../../docs/decisions/2026-11-11-registration-patronymic.md), `registration_fields.py` |
 | Создание блоков, два согласия и отложенное архивирование | [BLOCK_LIFECYCLE](BLOCK_LIFECYCLE.md) |
 | Аватары блоков | [BLOCK_AVATARS](BLOCK_AVATARS.md) |
 | Проекции чтения и производительность | [READ_PROJECTIONS](READ_PROJECTIONS.md) |

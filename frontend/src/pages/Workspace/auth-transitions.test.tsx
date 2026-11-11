@@ -100,7 +100,7 @@ it.each(["pending", "rejected", "active"] as const)("A03: password and VK login 
       expect(calls).not.toContain("/profile/me");
       // The own application and the own VK link (stage 2) are all a pending account reads.
       expect(calls.every((url) => ["/auth/login", "/auth/vk", "/session", "/registrations/me", "/bot-link/me"].includes(url))).toBe(true);
-      expect(page.container.textContent).toContain(state === "rejected" ? "Нужно уточнить сведения" : "Заявка на рассмотрении");
+      expect(page.container.textContent).toContain(state === "rejected" ? "Нужно уточнить сведения" : "Давайте знакомиться");
     }
     await page.cleanup(); page = undefined; adapter.restore();
   }

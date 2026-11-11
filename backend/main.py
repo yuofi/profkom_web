@@ -7,6 +7,7 @@ import bot_link
 import membership
 import vk_auth  # noqa: F401  (fails at startup without VK_CLIENT_ID in production)
 import contact_rules
+from registration_fields import PatronymicChoice
 from api_contract import Page, cursor_page, install_errors, legacy
 from errors import InvalidInput, NotFound
 from validation import Command
@@ -95,8 +96,8 @@ class ContactInfoIn(BaseModel):
 
 
 
-class RegisterIn(BaseModel):
-    """Every field but the patronymic is required already here (decision 29, AUTH-16)."""
+class RegisterIn(PatronymicChoice):
+    """Complete details, including a patronymic or an explicit absence decision."""
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     phone: str = Field(..., min_length=1, max_length=40)
     vk: str = Field(..., min_length=1, max_length=300)
@@ -105,7 +106,6 @@ class RegisterIn(BaseModel):
     email: EmailStr
     surname: str = Field(..., min_length=1, max_length=100)
     name: str = Field(..., min_length=1, max_length=100)
-    patronymic: str = ""
     password: str = Field(..., min_length=1, max_length=4096)
     group_number: int = Field(..., ge=100, le=700)
     tg: str = Field(
@@ -1367,7 +1367,7 @@ def register(payload: RegisterIn, response: Response):
         user_id=0,
         surname=payload.surname,
         name=payload.name,
-        patronymic=payload.patronymic,
+        patronymic=payload.patronymic or "",
         kkr_name=kkr_name,
         group_number=str(payload.group_number),
         location=payload.residence,
@@ -1398,6 +1398,9 @@ def register(payload: RegisterIn, response: Response):
         from registration import ensure_application
         with db._session() as session:
             application=ensure_application(session, created.user_id)
+            fields = json.loads(application.fields_json)
+            fields["no_patronymic"] = payload.no_patronymic
+            application.fields_json = json.dumps(fields, ensure_ascii=False)
             # With the bot integration on, the reviewers hear of it once the VK is linked too
             # (registration.ready, BOT_API.md stage 2).
             if not bot_link.enabled():

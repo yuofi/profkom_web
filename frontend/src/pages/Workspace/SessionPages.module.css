@@ -44,16 +44,6 @@
   background-repeat: no-repeat;
   background-position: right 16px center;
 }
-@media (min-width: 768px) {
-  /* The registration details in two columns; the form's own messages span both. */
-  .columns form:first-of-type > fieldset {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 20px;
-  }
-  .columns form:first-of-type > fieldset > :is(h3, [role="alert"]) {
-    grid-column: 1 / -1;
-  }
-}
 @media (max-width: 768px) {
   .layout {
     padding: 16px 16px 88px;
@@ -66,3 +56,14 @@
 .step:empty {
   display: none;
 }
+
+.wide { max-width:960px; }
+.top { display:flex; justify-content:space-between; align-items:center; gap:20px; }
+.registrationHero.registrationHero { padding:14px 0 8px; background:none; color:var(--on-surface); border-radius:0; }
+.registrationHero.registrationHero::before,.registrationHero.registrationHero::after { display:none; }
+.registrationHero.registrationHero h1 { color:var(--on-surface); font-size:36px; }
+.registrationHero.registrationHero p { color:color-mix(in srgb,var(--on-surface) 65%,transparent); max-width:580px; font-size:15px; }
+.registrationBody { display:grid; gap:16px; }
+.registrationBody>p { margin:0; font-size:13px; line-height:1.5; color:color-mix(in srgb,var(--on-surface) 70%,transparent); }
+.attempts { font-size:12px; }
+@media(max-width:768px) { .registrationHero.registrationHero h1 { font-size:29px; } .top { gap:12px; } .brand { font-size:21px; } }

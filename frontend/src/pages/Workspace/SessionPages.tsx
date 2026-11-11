@@ -33,10 +33,10 @@ import a from "./SessionPages.module.css";
 
 /** The frame of a session without the workspace: the site's mark, a centred column, and a
  *  stamp that names this screen instead of the section in the address (GL-18). */
-function AccountLayout({ label, children }: { label: string; children: ReactNode }) {
+function AccountLayout({ label, children, wide = false, actions }: { label: string; children: ReactNode; wide?: boolean; actions?: ReactNode }) {
   const { pathname } = useLocation();
-  return <div className={a.layout}>
-    <div className={a.brand}><ProfkomLogo variant="desktop" width={42} strokeWidth={16} aria-hidden="true" /><span>Профком<small>ВМК МГУ</small></span></div>
+  return <div className={`${a.layout} ${wide ? a.wide : ""}`}>
+    <div className={a.top}><div className={a.brand}><ProfkomLogo variant="desktop" width={42} strokeWidth={16} aria-hidden="true" /><span>Профком<small>ВМК МГУ</small></span></div>{actions}</div>
     <SectionContext.Provider value={{ ...SECTIONS[0], label, to: pathname }}>{children}</SectionContext.Provider>
   </div>;
 }
@@ -57,18 +57,19 @@ export function AccountStatePage() {
   const botMissing = !!bot && bot.state !== "ok";
   const pending = application.data?.status === "pending";
   return (
-    <AccountLayout label="Регистрация">
+    <AccountLayout label="Регистрация" wide actions={<button className={s.button} disabled={busy} onClick={() => void logout()}>{busy ? "Выходим…" : "Выйти"}</button>}>
     <Page
       title={
         session?.account_state === "archived"
           ? "Аккаунт в архиве"
           : session?.registration_status === "rejected"
             ? "Нужно уточнить сведения"
-            : "Заявка на рассмотрении"
+            : missing.length > 0 ? "Давайте знакомиться" : "Заявка на рассмотрении"
       }
-      description="Рабочие разделы станут доступны после одобрения регистрации."
+      headerClassName={a.registrationHero}
+      description={missing.length > 0 ? "Три коротких шага: личные данные, учёба и контакты. Рабочие разделы станут доступны после одобрения регистрации." : "Рабочие разделы станут доступны после одобрения регистрации."}
     >
-      <Card>
+      <div className={a.registrationBody}>
         <DemoRolePicker />
         <QueryState loading={application.isLoading} error={application.error} keepDataOnError={!!application.data}>
           <>
@@ -76,7 +77,7 @@ export function AccountStatePage() {
             {reason && <p className={s.warning}>Причина: {reason}</p>}
             {missing.length > 0 || botMissing ? (
               <p role="status">
-                {missing.length > 0 && `Заполните обязательные поля: ${missing.join(", ")}.`}
+                {missing.length > 0 && "Заполните обязательные поля анкеты на трёх шагах."}
                 {missing.length > 0 && botMissing && " "}
                 {botMissing && (pending ? "Привяжите бота ВКонтакте ниже." : "Перед повторной отправкой привяжите бота ВКонтакте ниже.")}
                 {pending && (bot
@@ -87,23 +88,18 @@ export function AccountStatePage() {
               !reason && <p>Дождитесь решения руководства Профкома.</p>
             )}
             {application.data && (
-              <p>
+              <p className={a.attempts}>
                 Использовано отправок: {application.data.attempts_used} из{" "}
                 {application.data.attempt_limit}.
               </p>
             )}
             {application.data && application.data.status !== "approved" && (
-              <div className={a.columns}><RegistrationForm application={application.data} /></div>
+              <RegistrationForm application={application.data} />
             )}
           </>
         </QueryState>
-        <div className={a.actions}>
-          <button className={s.button} disabled={busy} onClick={() => void logout()}>
-            {busy ? "Выходим…" : "Выйти"}
-          </button>
-        </div>
         {error && <p role="alert" className={s.error}>{error}</p>}
-      </Card>
+      </div>
       {session?.account_state === "pending" && application.data && application.data.status !== "approved" && (
         <div className={a.step}>
           <BotLinkStep lead={<p className={s.muted}>Обязательный шаг регистрации: бот будет присылать уведомления сайта в личные сообщения.</p>} />

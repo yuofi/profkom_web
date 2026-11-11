@@ -123,8 +123,10 @@ it("A-ROL-20: an unfinished VK application lists what to fill and preselects no 
   Object.assign(mock.state.registration.fields, { group_number: "", funding: null, tg: "" });
   page = await mountWorkspace(<AccountStatePage />, { role: "pending" });
   await settle(); await settle();
-  expect(page.container.textContent).toContain("Заполните обязательные поля: Группа, Telegram, Основа обучения.");
+  expect(page.container.textContent).toContain("Заполните обязательные поля анкеты на трёх шагах.");
   expect(page.container.textContent).not.toContain("Дождитесь решения");
+  await change(field(page.container, "no_patronymic"), "true");
+  await submit(page.container.querySelector("form")!); await settle();
   expect(field(page.container, "funding").value).toBe("");
 });
 

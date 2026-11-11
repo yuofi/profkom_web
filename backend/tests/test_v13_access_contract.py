@@ -9,6 +9,7 @@ REGISTER = dict(
     password="synthetic-password",
     surname="Иванов",
     name="Иван",
+    no_patronymic=True,
     group_number=101,
     tg="ivanov",
     phone="+79990000000",

@@ -11,7 +11,7 @@ import { richText } from "../contract";
 const synthetic = () => ({
   email: `integration_${crypto.randomUUID()}@example.com`,
   password: "Synthetic-Integration-2026",
-  name: "Участник", surname: "Тестовый", patronymic: "",
+  name: "Участник", surname: "Тестовый", patronymic: "", no_patronymic: true,
   group_number: 301, tg: "@profkom_test", phone: "+79990000000",
   vk: "https://vk.com/id123", funding: "budget" as const, residence: "Тест",
 });

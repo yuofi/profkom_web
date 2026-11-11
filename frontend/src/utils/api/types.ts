@@ -18,6 +18,7 @@ export interface UserIn {
   name: string;
   surname: string;
   patronymic: string;
+  no_patronymic?: boolean;
   password: string;
   group_number: number;
   tg: string;

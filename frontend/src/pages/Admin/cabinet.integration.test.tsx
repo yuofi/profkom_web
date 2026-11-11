@@ -49,7 +49,7 @@ async function click(label: string, scope: ParentNode = page!.container) {
 it("АВ-34, A-ROL-21: the cabinet opens on the waiting registrations", async () => {
   const label = `Ожидающая${crypto.randomUUID().slice(0, 6)}`;
   await authApi.register({ email: `integration-${label}@example.com`, password: livePassword, surname: "Заявка", name: label,
-    patronymic: "", group_number: 305, tg: "@profkom_test", phone: "+79990000000", vk: "https://vk.com/id123", funding: "contract", residence: "Тест" });
+    patronymic: "", no_patronymic: true, group_number: 305, tg: "@profkom_test", phone: "+79990000000", vk: "https://vk.com/id123", funding: "contract", residence: "Тест" });
   await liveLogin();
   await cabinet("/admin");
   await until(() => text().includes(`Заявка ${label}`));
