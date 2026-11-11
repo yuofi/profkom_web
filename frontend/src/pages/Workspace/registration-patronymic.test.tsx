@@ -87,3 +87,16 @@ it("returns to an earlier field when the server rejects it on the final save", a
   expect(page!.container.textContent).toContain("Шаг 1 из 3");
   expect(field(page!.container, "surname").getAttribute("aria-invalid")).toBe("true");
 });
+
+it("lets the applicant choose which field to correct after a full-save validation error", async () => {
+  await open();
+  await change(field(page!.container, "surname"), "");
+  await change(field(page!.container, "name"), "");
+  await act(async () => page!.container.querySelector("form")!.dispatchEvent(new KeyboardEvent("keydown", { key:"s",ctrlKey:true,bubbles:true,cancelable:true })));
+  await waitForPage(page!);
+  expect(document.activeElement).toBe(field(page!.container, "surname"));
+  await act(async () => field(page!.container, "name").focus());
+  await change(field(page!.container, "name"), "Анна");await waitForPage(page!);
+  expect(document.activeElement).toBe(field(page!.container, "name"));
+  expect(adapter!.history.patch).toHaveLength(0);
+});

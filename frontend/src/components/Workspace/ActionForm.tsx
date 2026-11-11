@@ -202,6 +202,7 @@ export function ActionForm({
   const [step, setStep] = useState(0);
   const lastStep = !steps || step === steps.length - 1;
   const [processedSubmit, setProcessedSubmit] = useState(0);
+  const focusedSubmit = useRef(0);
   const submitted = useRef(false);
   // A successful save clears the leave warning, but its editor still holds the
   // values/revision it accepted. A foreign refetch must not silently adopt a
@@ -421,7 +422,9 @@ export function ActionForm({
     if (form.submitCount && failedStep >= 0) setStep(failedStep);
   }
   useEffect(() => {
-    if (steps && form.submitCount && !form.isSubmitting && !form.isValidating) {
+    if (!form.submitCount) { focusedSubmit.current = 0; return; }
+    if (steps && !form.isSubmitting && !form.isValidating && focusedSubmit.current !== form.submitCount) {
+      focusedSubmit.current = form.submitCount;
       const invalid = steps[step].fields.find(name => !!form.errors[name]);
       if (invalid) focusField(invalid);
     }

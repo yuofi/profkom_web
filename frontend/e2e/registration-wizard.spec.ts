@@ -20,6 +20,13 @@ test("registration C validates each step, keeps the draft and saves only once", 
   await page.goto("/");
   await expect(page.getByRole("heading", {name:"Давайте знакомиться"})).toBeVisible();
   const forward=page.getByRole("button",{name:"Продолжить →",exact:true});
+  await page.locator('[name="surname"]').fill("");
+  await page.locator('[name="name"]').fill("");
+  await page.locator('form').first().press("Control+s");
+  await expect(page.locator('[name="surname"]')).toBeFocused();
+  await page.locator('[name="name"]').fill("Анна");
+  await expect(page.locator('[name="name"]')).toBeFocused();
+  await page.locator('[name="surname"]').fill("Петрова");
   await forward.click();
   await expect(page.locator('[name="patronymic"]')).toBeFocused();
   await expect(page.getByText("Шаг 1 из 3")).toBeVisible();
