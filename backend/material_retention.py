@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import calendar
 
 from database import db, FileRecordORM, GuideORM, RoleAssignmentORM, AuditLogORM
-from domain_models import MaterialORM, ObjectDeletionORM
+from domain_models import MaterialORM, MaterialRenderArtifactORM, ObjectDeletionORM
 
 
 def expires_at(value):
@@ -66,6 +66,7 @@ def purge_expired(as_of=None, *, dry_run=True, limit=25):
                 for file in files:
                     session.delete(file)
                 session.query(RoleAssignmentORM).filter_by(scope_kind="material", scope_id=row.material_id).delete(synchronize_session=False)
+                session.query(MaterialRenderArtifactORM).filter_by(material_id=row.material_id).delete(synchronize_session=False)
                 # Keep audit actors/dates, but permanently removed material text must not survive in its snapshots.
                 for event in session.query(AuditLogORM).filter_by(target_kind="material", target_id=row.material_id):
                     event.old_values_json = None

@@ -1,4 +1,4 @@
-import type { Material, RichText, Revision } from "./contract";
+import type { Material, MaterialText, Revision } from "./contract";
 import { idPath, allPages as page, request } from "./request";
 export const materialsApi = {
   resolveLegacyGuide: (id: string | number) => request<{ guide_id: number; material_id: string; revision: number }>("get", `/materials/legacy-guides/${idPath(id)}`),
@@ -9,7 +9,7 @@ export const materialsApi = {
     owner_block_id?: string;
     title: string;
     description: string;
-    content: RichText;
+    content: MaterialText;
     original_link?: string;
   }) => request<Material>("post", "/materials", data),
   update: (
@@ -17,10 +17,12 @@ export const materialsApi = {
     data: Revision & {
       title?: string;
       description?: string;
-      content?: RichText;
+      content?: MaterialText;
       original_link?: string | null;
     },
   ) => request<Material>("patch", `/materials/${idPath(id)}`, data),
+  preview: (id: string, data: Revision & { content: MaterialText }, signal?: AbortSignal) =>
+    request<MaterialText>("post", `/materials/${idPath(id)}/preview`, data, undefined, signal),
   publish: (id: string, data: Revision) =>
     request<Material>("post", `/materials/${idPath(id)}/publish`, data),
   /** Delete is revision-safe like every other command (GL-27). */
@@ -28,7 +30,7 @@ export const materialsApi = {
   deleted: () => page<Material>("/materials/deleted"),
   restore: (id: string, data: Revision) =>
     request<Material>("post", `/materials/${idPath(id)}/restore`, data),
-  audience: (id: string, audience: "block" | "everyone", data: Revision) =>
+  audience: (id: string, audience: "block" | "everyone" | "leadership", data: Revision) =>
     request<Material>("put", `/materials/${idPath(id)}/audience`, { audience, ...data }),
   editors: (id: string, user_ids: number[], data: Revision) =>
     request<{

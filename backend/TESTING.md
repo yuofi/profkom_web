@@ -20,6 +20,12 @@ Legacy tests have been updated for API 1.3: approved content, explicit roles, ow
 
 The v13 files cover registration limits/history, exact 72-hour substitution, membership/participation boundaries, tracker privacy and dates, immutable summaries and atomic corrections, historical reports/files, workspace/notifications/XLSX, materials/draft-file ACL, directory/avatars, archive/cleanup/retry queues, old-schema migration and competing commands. Migrations are rehearsed on synthetic old tables and applied twice; original guide text, IDs, PGAS and user counts are checked.
 
+`test_guide_embeds_materials.py` covers the opt-in rich guide format: additive old-schema
+startup twice, draft/publication separation, compile outside the writer lock, post-compile
+session/revision/ACL rechecks, read-only preview and GET, private image bytes and revocation.
+`test_guide_embeds_compiler.py` checks the HTML5/Markdown corpus, finite tree/URL policy,
+resource limits and isolated compiler process. See `docs/GUIDE_EMBEDS.md`.
+
 Frontend checks from `frontend/`:
 
 ```sh

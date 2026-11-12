@@ -154,6 +154,8 @@ class MaterialORM(Base):
     draft_description = Column(Text, nullable=True)
     draft_original_link = Column(String, nullable=True)
     draft_body = Column(Text, nullable=True)
+    published_format = Column(String, nullable=False, default="markdown", server_default="markdown")
+    draft_format = Column(String, nullable=False, default="markdown", server_default="markdown")
     has_draft = Column(Boolean, nullable=False, default=True)
     revision = Column(Integer, nullable=False, default=1)
     placeholder = Column(Boolean, nullable=False, default=False)
@@ -165,6 +167,15 @@ class MaterialORM(Base):
     # Who reads a block guide: "block" — its members, leads and the chair's team; "everyone" —
     # every active participant (owner, 2026-10-25). Other materials read to everyone.
     audience = Column(String, nullable=False, default="block", server_default="block")
+
+
+class MaterialRenderArtifactORM(Base):
+    """Bounded derived content, never a source of authorization."""
+    __tablename__ = "material_render_artifacts"
+    material_id = Column(String, ForeignKey("materials.material_id"), primary_key=True)
+    slot = Column(String, primary_key=True)
+    source_hash = Column(String, nullable=False)
+    render_json = Column(Text, nullable=False)
 
 
 class ProfileMetadataORM(Base):

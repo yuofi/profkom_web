@@ -177,6 +177,8 @@ POLICY = {
     "material.edit": TACHKI | {MATERIAL_EDITOR},  # also publish and reversible delete (decision 18)
     # Checked on the owning block of a guide for its block only (owner, 2026-10-25); reading only.
     "material.read_block_guide": TACHKI | BLOCK_LEADS | {BLOCK_MEMBER},
+    # Current leads of a block/event/subevent, never an ordinary queue owner.
+    "material.read_leadership_guide": TACHKI | {QUEUE_HOLDER},
     "material.manage_editors": TACHKI,
     "material.restore": TACHKI,  # deletion is reversible (decision 18)
     "pgas.manage": TACHKI | {PGAS_ADMIN},  # decision 14

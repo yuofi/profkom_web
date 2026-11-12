@@ -215,7 +215,8 @@ def permitted(session, fr, uid, write=False):
         from domain_models import MaterialORM
 
         material = session.get(MaterialORM, fr.owner_id)
-        return "file:" + fr.file_id in (material.published_body or "")
+        from material_render import published_file_ids
+        return fr.file_id in published_file_ids(session, material)
     if fr.owner_kind == "pgas":
         import access
 

@@ -2066,7 +2066,7 @@ export function installMockTransport(
         ];
       if (parts[2] === "audience") {
         if (!material.audience) return fail(422, "invalid_input", "Только у гайда блока есть читатели");
-        material.audience = data.audience as "block" | "everyone";
+        material.audience = data.audience as "block" | "everyone" | "leadership";
         material.revision += 1;
         return [200, materialView(material)];
       }

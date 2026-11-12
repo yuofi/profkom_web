@@ -781,6 +781,17 @@ def _ensure_sqlite_material_published_at():
 _ensure_sqlite_material_published_at()
 
 
+def _ensure_sqlite_material_formats():
+    with engine.begin() as connection:
+        columns = {row[1] for row in connection.execute(text("PRAGMA table_info(materials)"))}
+        for name in ("published_format", "draft_format"):
+            if columns and name not in columns:
+                connection.execute(text(f"ALTER TABLE materials ADD COLUMN {name} VARCHAR NOT NULL DEFAULT 'markdown'"))
+
+
+_ensure_sqlite_material_formats()
+
+
 def _ensure_sqlite_block_avatar_column() -> None:
     """Existing block metadata keeps its IDs, membership and nullable avatar unchanged."""
     with engine.begin() as conn:

@@ -129,6 +129,7 @@ function MaterialCard({ material: m, heading: Heading }: { material: Material; h
           {m.kind === "kmb" ? "КМБ" : m.kind === "guide" ? "Гайд" : "Документ"}
         </Badge>
         {m.audience === "block" && <Badge tone="peach">Для участников блока</Badge>}
+        {m.audience === "leadership" && <Badge tone="peach">Для руководителей и заместителей</Badge>}
       </div>
       {m.description && <p className={cards.description}>{m.description}</p>}
     </div>
@@ -196,7 +197,7 @@ export function MaterialPage() {
       {m && <>
         <Card className={u.reading}>
           {m.placeholder && m.community_url && <a className={s.linkButton} href={m.community_url} target="_blank" rel="noopener noreferrer">Сообщество блока</a>}
-          {m.published_content ? <Suspense fallback={loading}><MaterialContent body={m.published_content.body} /></Suspense> : <Empty>Материал ещё готовится. Опубликованный текст появится здесь.</Empty>}
+          {m.published_content ? <Suspense fallback={loading}><MaterialContent content={m.published_content} materialId={m.material_id} /></Suspense> : <Empty>Материал ещё готовится. Опубликованный текст появится здесь.</Empty>}
           {m.original_link && <a className={s.linkButton} href={m.original_link} target="_blank" rel="noopener noreferrer">Открыть оригинал</a>}
         </Card>
         {m.audience && <div className={u.audience}><MaterialAudience material={m} /></div>}

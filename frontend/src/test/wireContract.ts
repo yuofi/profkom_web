@@ -14,7 +14,10 @@ export function wireIssues(name: string, value: unknown): string[] {
 }
 
 function validate(type: ts.Type, value: unknown, path: string, depth = 0): string[] {
-  if (depth > 20) throw Error(`DTO recursion limit at ${path}`);
+  // A guide tree has up to 12 HTML levels; each traverses an object, an array and
+  // nullable/optional types. This is a test walker, not the runtime tree policy.
+  const limit = /^(Material|MaterialText|GuideRender|GuideNode)(?:\.|\[|$)/.test(path) ? 80 : 20;
+  if (depth > limit) throw Error(`DTO recursion limit at ${path}`);
   if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return [];
   if (type.isUnion()) {
     const results = type.types.map(t => validate(t, value, path, depth + 1));

@@ -486,6 +486,8 @@ def ops():
         # Block guides read to their block, its leads and the chair's team (2026-10-25).
         Op("MT8", "GET", lambda o: f"/materials/{o.ids['guide_it']}", deny=(404,)),
         Op("MT9", "GET", lambda o: f"/materials/{o.ids['guide_hr']}", deny=(404,)),
+        Op("MT10", "POST", lambda o: f"/materials/{o.ids['material']}/preview",
+           lambda o, r: {"expected_revision": BAD, "content": rich("preview")}, ok=(409,), cap=("MT1", "edit_material")),
         # Contacts
         Op("C1", "GET", lambda o: "/contacts"),
         Op("C2", "GET", lambda o: "/contacts/archive"),
@@ -614,6 +616,7 @@ EXPECTED = {
     "MT1": ALL, "MT2": TACHKI | {"editor"}, "MT3": TACHKI | {"editor"}, "MT4": TACHKI, "MT5": TACHKI,
     "MT6": TACHKI | IT_LEAD, "MT7": TACHKI | HR_LEAD,
     "MT8": TACHKI | IT_LEAD | IT_MEMBERS, "MT9": TACHKI | HR_LEAD | {"hract"},
+    "MT10": TACHKI | {"editor"},
     "C1": ALL, "C2": ALL, "C3": TACHKI | HRM,
     "BOT1": set(), "BOT2": set(), "BOT3": set(),  # the IT block master and maintainers only
     "BOT4": set(), "BOT5": set(), "BOT6": set(), "BOT7": set(),

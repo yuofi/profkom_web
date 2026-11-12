@@ -883,6 +883,40 @@ export interface ReportVersion {
   published_at: string;
   published_by: UserRef;
 }
+/** Guides alone opt in to checked HTML inserts; ordinary RichText stays Markdown. */
+export interface GuideNode {
+  tag: string;
+  text: string;
+  attrs: {
+    classes?: string[];
+    href?: string;
+    src?: string;
+    alt?: string;
+    width?: number;
+    height?: number;
+    scope?: "row" | "col" | "rowgroup" | "colgroup";
+    colspan?: number;
+    rowspan?: number;
+    start?: number;
+    value?: number;
+    anchor?: string;
+  };
+  children: GuideNode[];
+}
+export interface GuideDiagnostic { block_id: string | null; line: number; code: string; message: string }
+export interface GuideRender {
+  schema_version: number;
+  policy_version: number;
+  source_hash: string;
+  blocks: { id: string; source: string; nodes: GuideNode[]; text: string }[];
+  diagnostics: GuideDiagnostic[];
+  file_ids: string[];
+}
+export interface MaterialText {
+  format: "markdown" | "markdown-embeds-v1";
+  body: string;
+  render?: GuideRender | null;
+}
 export interface Material extends Versioned {
   deleted_at?: string | null;
   placeholder?: boolean;
@@ -894,12 +928,12 @@ export interface Material extends Versioned {
   title: string;
   description: string;
   original_link: string | null;
-  published_content: RichText | null;
-  draft_content?: RichText;
+  published_content: MaterialText | null;
+  draft_content?: MaterialText;
   /** Editors only: the stored text with file:<id> links, never signed URLs. */
-  source_content?: RichText;
+  source_content?: MaterialText;
   /** Block guides only: "block" reads to the block and the chair's team, "everyone" to all. */
-  audience?: "block" | "everyone";
+  audience?: "block" | "everyone" | "leadership";
   /** When the readers' version was published; null for older publications. */
   published_at?: string | null;
 }

@@ -73,7 +73,7 @@ TABLES = (
     "object_deletions",
     "account_archives",
     "profile_metadata", "former_contacts",
-    "materials",
+    "material_render_artifacts", "materials",
     "summary_versions",
     "scope_tenures",
     "block_applications", "memberships", "category_revisions", "block_metadata",

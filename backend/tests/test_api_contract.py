@@ -256,6 +256,7 @@ API_ROUTES: tuple[tuple[str, str], ...] = (
     ('POST', '/api/leadership/transfer'),
     ('POST', '/api/materials'),
     ('POST', '/api/materials/{material_id}/publish'),
+    ('POST', '/api/materials/{material_id}/preview'),
     ('POST', '/api/materials/{material_id}/restore'),
     ('POST', '/api/merits'),
     ('POST', '/api/notifications/read-all'),

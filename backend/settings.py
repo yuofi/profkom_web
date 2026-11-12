@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     # WAL only where backend/.env names it (PB-31): on a server a separately approved step of
     # DEPLOY.md, section 7. Otherwise the rollback journal.
     SQLITE_JOURNAL_MODE: Literal["WAL", "DELETE"] = "DELETE"
+    # New rich guide writes are opt-in; existing publications remain readable when off.
+    GUIDE_HTML_EMBEDS_ENABLED: bool = False
     # SHA-256 (lowercase hex) of the HereBot service token, or two comma-separated values while
     # the token is rotated. Empty: /api/bot/v1 answers 404 bot_api_disabled (backend/docs/BOT_API.md).
     BOT_API_TOKEN_SHA256: str = ""

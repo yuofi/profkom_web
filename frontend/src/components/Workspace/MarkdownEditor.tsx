@@ -8,6 +8,11 @@ import editor from "./MarkdownEditor.module.css";
 import type { UserRef } from "../../utils/api/contract";
 
 type Snapshot = { value: string; start: number; end: number };
+export interface MarkdownInsertTools { insert: (source: string) => void }
+/** The extension receives an event callback; rendering it never reads the textarea selection. */
+function InsertTools({ render, insert }: { render: (tools: MarkdownInsertTools) => ReactNode; insert: (source: string) => void }) {
+  return render({ insert });
+}
 export interface MarkdownEditorProps {
   value: string;
   onChange: (value: string) => void;
@@ -26,13 +31,17 @@ export interface MarkdownEditorProps {
   required?: boolean;
   invalid?: boolean;
   describedBy?: string;
+  /** A scoped editor extension; ordinary Markdown contexts never enable guide inserts. */
+  renderInsertTools?: (tools: MarkdownInsertTools) => ReactNode;
+  /** Mounted only while preview is open, so a remote preview does no background work. */
+  renderPreview?: () => ReactNode;
 }
 
 /** The source stays Markdown: inserting a command never rewrites the rest of a document. */
 export function MarkdownEditor({
   value, onChange, label = "Содержимое в Markdown", name, rows = 18,
   context = "material", placeholder, disabled = false, variant = "default", footer, mentionUsers,
-  required, invalid, describedBy,
+  required, invalid, describedBy, renderInsertTools, renderPreview,
 }: MarkdownEditorProps) {
   const input = useRef<HTMLTextAreaElement>(null), fieldId = useId(), Field = variant === "comment" ? "label" : "div";
   const selection = useRef<{ start: number; end: number; scrollTop?: number } | null>(null);
@@ -73,6 +82,13 @@ export function MarkdownEditor({
     const middle = selected || fallback;
     setPreview(false);
     emit(insertMarkdown(value, old.start, old.end, before + (selected ? "" : fallback), after), old.start + before.length, old.start + before.length + middle.length);
+  };
+  const insertSource = (source: string) => {
+    if (disabled) return;
+    const old = snapshot();
+    remember(undo.current, old);redo.current = [];
+    setPreview(false);
+    emit(value.slice(0, old.start) + source + value.slice(old.end), old.start + source.length);
   };
   const editLines = (transform: (line: string, index: number) => string) => {
     if (disabled) return;
@@ -160,6 +176,7 @@ export function MarkdownEditor({
       <div className={editor.toolbar} role="toolbar" aria-label="Форматирование Markdown">
         {variant !== "comment" && previewControl}
         {preview ? <span className={editor.mode}>Просмотр Markdown</span> : <>
+          {renderInsertTools && <InsertTools render={renderInsertTools} insert={insertSource} />}
           <span className={editor.separator} aria-hidden="true" />
           {<EditorTool label={"Отменить"} disabled={disabled || !stacks.undo} onClick={() => restore("undo")} hint={"Отменить · Cmd/Ctrl+Z"}><EditorIcon name="undo" /></EditorTool>}
           {<EditorTool label={"Повторить"} disabled={disabled || !stacks.redo} onClick={() => restore("redo")} hint={"Повторить · Cmd/Ctrl+Shift+Z"}><EditorIcon name="redo" /></EditorTool>}
@@ -220,7 +237,7 @@ export function MarkdownEditor({
           }} />
       </Field>}
       {preview && <div className={editor.preview} role="region" aria-label={`Просмотр: ${label}`}>
-        {value.trim() ? <MarkdownContent body={value} mentionUsers={mentionUsers} /> : <p className={editor.empty}>Здесь появится отформатированный текст.</p>}
+        {renderPreview ? renderPreview() : value.trim() ? <MarkdownContent body={value} mentionUsers={mentionUsers} /> : <p className={editor.empty}>Здесь появится отформатированный текст.</p>}
       </div>}
       {footer && <div className={editor.footer} data-editor-footer>{footer}</div>}
     </div>

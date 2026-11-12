@@ -38,3 +38,5 @@
 Код: `backend/registration_fields.py`, `RegistrationForm.tsx`, `contactFields.ts`.
 Проверки: `test_registration_patronymic.py`, frontend
 `registration-patronymic.test.tsx` и `registration-patronymic.integration.test.tsx`.
+
+Вариант C [опубликован на production 12 ноября](../operations/REGISTRATION_C_RELEASE_20261112.md).

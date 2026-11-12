@@ -9,6 +9,63 @@ class RichText(BaseModel):
     body: str
 
 
+class GuideNodeAttrs(BaseModel):
+    model_config = {"extra": "forbid", "frozen": True}
+    classes: tuple[str, ...] | None = None
+    href: str | None = None
+    anchor: str | None = None
+    src: str | None = None
+    alt: str | None = None
+    width: int | None = None
+    height: int | None = None
+    scope: str | None = None
+    colspan: int | None = None
+    rowspan: int | None = None
+    start: int | None = None
+    value: int | None = None
+    open: bool | None = None
+
+
+class GuideNode(BaseModel):
+    model_config = {"extra": "forbid", "frozen": True}
+    tag: str
+    text: str
+    attrs: GuideNodeAttrs
+    children: tuple["GuideNode", ...]
+
+
+class GuideEmbedBlock(BaseModel):
+    model_config = {"extra": "forbid", "frozen": True}
+    id: str
+    source: str
+    nodes: tuple[GuideNode, ...]
+    text: str
+
+
+class GuideDiagnostic(BaseModel):
+    model_config = {"extra": "forbid", "frozen": True}
+    block_id: str | None
+    line: int
+    code: str
+    message: str
+
+
+class GuideRender(BaseModel):
+    model_config = {"extra": "forbid", "frozen": True}
+    schema_version: Literal[1]
+    policy_version: Literal[1]
+    source_hash: str
+    blocks: tuple[GuideEmbedBlock, ...]
+    diagnostics: tuple[GuideDiagnostic, ...]
+    file_ids: tuple[str, ...]
+
+
+class MaterialContent(BaseModel):
+    format: Literal["markdown", "markdown-embeds-v1"] = "markdown"
+    body: str
+    render: GuideRender | None = None
+
+
 class UserReference(BaseModel):
     user_id: int | None
     display_name: str
@@ -86,13 +143,13 @@ class Material(BaseModel):
     title: str
     description: str
     original_link: str | None
-    published_content: RichText | None
-    draft_content: RichText | None = None
+    published_content: MaterialContent | None
+    draft_content: MaterialContent | None = None
     # Only for editors: the stored text to edit, with file:<id> and unsigned links.
-    source_content: RichText | None = None
+    source_content: MaterialContent | None = None
     editor_user_ids: list[int] | None = None
     # Block guides only: "block" reads to the block, "everyone" to every participant.
-    audience: Literal["block", "everyone"] | None = None
+    audience: Literal["block", "everyone", "leadership"] | None = None
     revision: int
     capabilities: list[str]
     deleted_at: str | None = None

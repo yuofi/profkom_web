@@ -7,16 +7,18 @@ from fastapi import Body, Depends, HTTPException
 from database import db, GuideORM, RoleAssignmentORM, UserORM
 from domain_models import MaterialORM, BlockMetaORM
 from models import User
-from auth import get_current_user
+from auth import get_current_user, recheck_current_user
 from registration import Revision, audit, now, version, fail
 import access
 from validation import Command
 from api_contract import Page
-from domain_contract import Material as MaterialOut, EditorAssignment
+from domain_contract import Material as MaterialOut, EditorAssignment, MaterialContent
+from settings import settings
+import material_render
 
 
 class RichText(Command):
-    format: Literal["markdown"] = "markdown"
+    format: Literal["markdown", "markdown-embeds-v1"] = "markdown"
     body: str
 
 
@@ -36,12 +38,16 @@ class Patch(Revision):
     original_link: str | None = None
 
 
+class Preview(Revision):
+    content: RichText
+
+
 class Editors(Revision):
     user_ids: list[int]
 
 
 class Audience(Revision):
-    audience: Literal["block", "everyone"]
+    audience: Literal["block", "everyone", "leadership"]
 
 
 def row(s, id):
@@ -55,6 +61,8 @@ def can_edit(id, uid):
     with db._session() as s:
         m = s.get(MaterialORM, id)
         if not m or m.deleted:
+            return False
+        if m.audience == "leadership" and not access.allowed(uid, "material.read_leadership_guide"):
             return False
     return access.allowed(uid, "material.edit", "material", id)
 
@@ -84,6 +92,8 @@ def can_read(id, uid):
             return True
         if m.published_body is None:
             return False
+        if m.audience == "leadership":
+            return access.allowed(uid, "material.read_leadership_guide")
         if not block_only(m):
             return True
         # A guide of its block: the block's members and leads, the chair's team (2026-10-25).
@@ -98,13 +108,23 @@ def stored(s, body, material_id, published):
     return stored_text(body, own_attachments(s, material_id), bucket_keys(published))
 
 
-def dto(s, m, uid):
+def dto(s, m, uid, *, detail=True):
     from legacy_files import read_text
 
     edit = can_edit(m.material_id, uid)
     draft = edit and m.has_draft
     from material_updates import placeholder_text
     published_body = placeholder_text(s, m.owner_block_id) if m.placeholder and m.revision == 1 and not m.has_draft and m.owner_block_id else m.published_body
+    rendered = (material_render.artifacts(s, m.material_id) if detail and (
+        m.published_format == material_render.EXTENDED or (draft and m.draft_format == material_render.EXTENDED)
+    ) else {})
+    def content(body, format, slot):
+        if format == material_render.EXTENDED:
+            result = dict(format=format, body=(body or "") if detail else "")
+            if detail:
+                result["render"] = material_render.load_model(rendered.get(slot), body)
+            return result
+        return dict(format="markdown", body=read_text(body) if slot == "published" else (body or ""))
     data = dict(
         material_id=m.material_id,
         kind=m.kind,
@@ -117,7 +137,7 @@ def dto(s, m, uid):
         ),
         original_link=m.draft_original_link if draft else m.original_link,
         published_content=(
-            dict(format="markdown", body=read_text(published_body))
+            content(published_body, m.published_format, "published")
             if m.published_body is not None
             else None
         ),
@@ -128,17 +148,20 @@ def dto(s, m, uid):
         capabilities=[],
     )
     if m.kind == "guide" and m.owner_block_id:
-        data["audience"] = "everyone" if m.audience == "everyone" else "block"
+        data["audience"] = m.audience if m.audience in {"everyone", "leadership"} else "block"
     if edit:
         data["capabilities"] += ["edit_material", "publish_material", "delete_material"]
+        if settings.GUIDE_HTML_EMBEDS_ENABLED and m.kind == "guide":
+            data["capabilities"].append("edit_html_material")
         if m.kind == "guide" and m.owner_block_id:
             data["capabilities"].append("edit_audience")
         if draft:
-            data["draft_content"] = dict(format="markdown", body=m.draft_body or "")
+            data["draft_content"] = content(m.draft_body, m.draft_format, "draft")
         # The editor always starts from the stored text, never from signed links (A-MAT-1).
         data["source_content"] = dict(
-            format="markdown",
-            body=(m.draft_body or "") if m.has_draft else (m.published_body or ""),
+            format=m.draft_format if m.has_draft else m.published_format,
+            body=((m.draft_body or "") if m.has_draft else (m.published_body or ""))
+                if detail or (m.draft_format if m.has_draft else m.published_format) == "markdown" else "",
         )
     if access.allowed(uid, "material.manage_editors"):
         data["capabilities"].append("manage_material_editors")
@@ -150,6 +173,67 @@ def dto(s, m, uid):
             ).all())
         ]
     return data
+
+
+def require_format(kind, content):
+    if content.format == material_render.EXTENDED:
+        try:
+            content.body.encode("utf-8")
+        except UnicodeEncodeError:
+            fail(422, "Текст содержит недопустимый символ Unicode", "guide_invalid_unicode")
+        if kind != "guide":
+            fail(422, "HTML-вставки доступны в гайдах блоков", "guide_format_kind")
+        if not settings.GUIDE_HTML_EMBEDS_ENABLED:
+            fail(409, "Редактирование HTML-вставок пока выключено", "guide_embeds_disabled")
+
+
+def compile_source(content):
+    if content.format == "markdown":
+        return None
+    from guide_embeds import compile_bounded, EmbedCompileBusy, EmbedCompileTimeout
+    try:
+        return compile_bounded(content.body)
+    except EmbedCompileBusy:
+        fail(429, "Проверка вставок занята. Повторите через несколько секунд", "guide_compile_busy")
+    except EmbedCompileTimeout:
+        fail(422, "Проверка вставок превысила лимит времени. Разделите большой блок", "guide_compile_timeout")
+
+
+def prepare_content(material_id, payload, cur):
+    """Read ACL/source, release the DB, then do bounded CPU work in this worker thread."""
+    with db.atomic(write=False):
+        recheck_current_user(cur, working=True)
+        with db._session() as s:
+            m = row(s, material_id)
+            require_edit(material_id, cur.user_id)
+            version(m, payload.expected_revision)
+            if payload.content is None:
+                return None, None
+            require_format(m.kind, payload.content)
+            content = payload.content.model_copy(update={
+                "body": stored(s, payload.content.body, material_id, m.published_body)
+            })
+    return content, compile_source(content)
+
+
+def check_render_files(s, material_id, uid, render):
+    if render and not render["diagnostics"]:
+        from file_access import check_attachments
+        check_attachments(s, render["file_ids"], "material", material_id, uid)
+        material_render.check_images(s, render)
+
+
+def require_create(s, payload, cur):
+    if payload.owner_block_id:
+        meta = s.get(BlockMetaORM, payload.owner_block_id)
+        if not meta:
+            fail(404, "Block not found")
+        permitted = access.allowed(cur.user_id, "material.create_guide", "block", meta.legacy_name)
+    else:
+        permitted = access.allowed(cur.user_id, "material.create_general")
+    if not permitted:
+        fail(403, "Material creator required")
+    require_format(payload.kind, payload.content)
 
 
 def _prime_editors(s, materials):
@@ -230,7 +314,16 @@ def publish(s, m, uid):
         from file_access import check_attachments
 
         m.draft_body = stored(s, m.draft_body, m.material_id, m.published_body)
-        ids = re.findall(r"file:(file-[\w-]+)", m.draft_body or "")
+        rendered = None
+        if m.draft_format == material_render.EXTENDED:
+            require_format(m.kind, RichText(format=m.draft_format, body=m.draft_body or ""))
+            rendered = material_render.load(material_render.artifacts(s, m.material_id).get("draft"), m.draft_body)
+            if not rendered or rendered["diagnostics"]:
+                fail(422, "Исправьте ошибки HTML-вставок и сохраните черновик перед публикацией", "guide_embeds_invalid")
+            ids = rendered["file_ids"]
+            material_render.check_images(s, rendered)
+        else:
+            ids = re.findall(r"file:(file-[\w-]+)", m.draft_body or "")
         check_attachments(s, list(dict.fromkeys(ids)), "material", m.material_id, uid)
         if not (m.draft_body or "").strip() and not m.draft_original_link:
             fail(422, "Material content or original link is required")
@@ -238,10 +331,14 @@ def publish(s, m, uid):
         m.description = m.draft_description or ""
         m.original_link = m.draft_original_link
         m.published_body = m.draft_body or ""
+        m.published_format = m.draft_format
+        material_render.save(s, m.material_id, "published", m.published_body, rendered)
+        material_render.save(s, m.material_id, "draft", "", None)
         from domain_seed import now as published_now
         m.published_at = published_now()
         m.has_draft = False
         m.draft_body = None
+        m.draft_format = "markdown"
         m.draft_title = None
         m.draft_description = None
         m.draft_original_link = None
@@ -342,7 +439,7 @@ def register_routes(router):
             ]
             if access.allowed(cur.user_id, "material.manage_editors"):
                 _prime_editors(s, readable)
-            return Page(items=[dto(s, m, cur.user_id) for m in readable], next_cursor=None)
+            return Page(items=[dto(s, m, cur.user_id, detail=False) for m in readable], next_cursor=None)
 
     @router.get("/materials/deleted", response_model=Page[MaterialOut], response_model_exclude_unset=True)
     def deleted(cur: User = Depends(get_current_user)):
@@ -390,7 +487,10 @@ def register_routes(router):
             m = row(s, material_id)
             if not can_read(material_id, cur.user_id):
                 fail(404, "Material not found")
-            return dto(s, m, cur.user_id)
+            data = dto(s, m, cur.user_id)
+            if m.published_format == material_render.EXTENDED or m.draft_format == material_render.EXTENDED:
+                return material_render.detail_response(data)
+            return data
 
     @router.post(
         "/materials", response_model=MaterialOut, response_model_exclude_unset=True
@@ -402,21 +502,19 @@ def register_routes(router):
             fail(422, "Guide requires a block")
         if payload.kind != "guide" and payload.owner_block_id:
             fail(422, "Only guides have an owning block")
-        with db._session() as s:
-            if payload.owner_block_id:
-                meta = s.get(BlockMetaORM, payload.owner_block_id)
-                if not meta:
-                    fail(404, "Block not found")
-                allowed = access.allowed(cur.user_id, "material.create_guide", "block", meta.legacy_name)
-            else:
-                allowed = access.allowed(cur.user_id, "material.create_general")
-            if not allowed:
-                fail(403, "Material creator required")
+        with db.atomic(write=False), db._session() as s:
+            recheck_current_user(cur, working=True)
+            require_create(s, payload, cur)
+            body = stored(s, payload.content.body, None, None)
+        content = payload.content.model_copy(update={"body": body})
+        rendered = compile_source(content)
+        with db.atomic(), db._session() as s:
+            recheck_current_user(cur, working=True)
+            require_create(s, payload, cur)
             if payload.original_link and not payload.original_link.startswith(
                 ("https://", "http://")
             ):
                 fail(422, "Invalid original link")
-            body = stored(s, payload.content.body, None, None)
             if re.search(r"file:file-[\w-]+", body):
                 # A new object owns no files yet; upload after saving its draft.
                 fail(422, "A new material cannot reference files; attach them after creating its draft")
@@ -430,6 +528,7 @@ def register_routes(router):
                 draft_description=payload.description,
                 draft_original_link=payload.original_link,
                 draft_body=body,
+                draft_format=content.format,
                 has_draft=True,
                 revision=1,
                 placeholder=False,
@@ -438,6 +537,7 @@ def register_routes(router):
             )
             s.add(m)
             s.flush()
+            material_render.save(s, m.material_id, "draft", body, rendered)
             audit(
                 s,
                 "material",
@@ -456,7 +556,9 @@ def register_routes(router):
         response_model_exclude_unset=True,
     )
     def patch(material_id: str, payload: Patch, cur: User = Depends(get_current_user)):
-        with db._session() as s:
+        content, rendered = prepare_content(material_id, payload, cur)
+        with db.atomic(), db._session() as s:
+            recheck_current_user(cur, working=True)
             m = row(s, material_id)
             require_edit(material_id, cur.user_id)
             version(m, payload.expected_revision)
@@ -465,6 +567,10 @@ def register_routes(router):
                 m.draft_description = m.description
                 m.draft_original_link = m.original_link
                 m.draft_body = m.published_body or ""
+                m.draft_format = m.published_format
+                if m.published_format == material_render.EXTENDED and content is None:
+                    old_render = material_render.load(material_render.artifacts(s, material_id).get("published"), m.published_body)
+                    material_render.save(s, material_id, "draft", m.draft_body, old_render)
                 m.has_draft = True
             if payload.title is not None:
                 if not payload.title.strip():
@@ -478,10 +584,11 @@ def register_routes(router):
                 ):
                     fail(422, "Invalid original link")
                 m.draft_original_link = payload.original_link
-            if payload.content is not None:
-                m.draft_body = stored(
-                    s, payload.content.body, material_id, m.published_body
-                )
+            if content is not None:
+                require_format(m.kind, content)
+                check_render_files(s, material_id, cur.user_id, rendered)
+                m.draft_body, m.draft_format = content.body, content.format
+                material_render.save(s, material_id, "draft", m.draft_body, rendered)
             m.revision += 1
             audit(
                 s,
@@ -503,11 +610,27 @@ def register_routes(router):
     def do_publish(
         material_id: str, payload: Revision, cur: User = Depends(get_current_user)
     ):
-        with db._session() as s:
+        with db.atomic(), db._session() as s:
+            recheck_current_user(cur, working=True)
             m = row(s, material_id)
             require_edit(material_id, cur.user_id)
             version(m, payload.expected_revision)
             return publish(s, m, cur.user_id)
+
+    @router.post("/materials/{material_id}/preview", response_model=MaterialContent, response_model_exclude_unset=True)
+    def preview(material_id: str, payload: Preview, cur: User = Depends(get_current_user)):
+        content, rendered = prepare_content(material_id, payload, cur)
+        with db.atomic(write=False), db._session() as s:
+            recheck_current_user(cur, working=True)
+            m = row(s, material_id)
+            require_edit(material_id, cur.user_id)
+            version(m, payload.expected_revision)
+            require_format(m.kind, content)
+            check_render_files(s, material_id, cur.user_id, rendered)
+            result = dict(format=content.format, body=content.body)
+            if rendered is not None:
+                result["render"] = rendered
+            return result
 
     @router.delete("/materials/{material_id}")
     def remove(material_id: str, payload: Revision | None = Body(None), cur: User = Depends(get_current_user)):
@@ -606,7 +729,7 @@ def register_routes(router):
             if m.kind != "guide" or not m.owner_block_id:
                 fail(422, "Only a block guide has an audience")
             version(m, payload.expected_revision)
-            before = "everyone" if m.audience == "everyone" else "block"
+            before = m.audience if m.audience in {"everyone", "leadership"} else "block"
             if before != payload.audience:
                 m.audience = payload.audience
                 m.revision += 1

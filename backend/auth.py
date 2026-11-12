@@ -323,6 +323,7 @@ async def guard_working_access(request: Request):
 OWN_TRANSACTION = {"/api/auth/login", "/api/auth/vk", "/api/auth/vk/link",
                    "/api/auth/register", "/api/auth/change-password"}
 OWN_TRANSACTION_PATTERN = re.compile(r"/api/accounts/[^/]+/temporary-password")
+MATERIAL_OWN_TRANSACTION = re.compile(r"/api/materials(?:/[^/]+(?:/(?:publish|preview))?)?")
 
 
 def own_transaction(path: str) -> bool:
@@ -352,7 +353,8 @@ def recheck_current_user(cur: User, *, working: bool = False) -> User:
 
 
 async def unit_of_work(request: Request):
-    if own_transaction(request.url.path):
+    if own_transaction(request.url.path) or (request.method in {"POST", "PATCH"}
+            and MATERIAL_OWN_TRANSACTION.fullmatch(request.url.path)):
         yield
         return
     async with db.async_atomic(write=request.method not in {"GET", "HEAD", "OPTIONS"},

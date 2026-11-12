@@ -55,6 +55,16 @@ function remarkChecklistPositions({ source }: { source: string }) {
     visit(tree);
   };
 }
+/** Fence metadata is data, never HTML; only an explicit guide renderer consumes it. */
+function remarkFenceMetadata() {
+  return (tree: Root) => {
+    const visit = (node: Root | RootContent) => {
+      if (node.type === "code" && node.lang === "profkom-html") node.data = { ...node.data, hProperties: { ...node.data?.hProperties, "data-fence-meta": node.meta ?? "" } };
+      if ("children" in node) node.children.forEach(child => visit(child as RootContent));
+    };
+    visit(tree);
+  };
+}
 function ChecklistCheckbox({ body, onMark, busy, pending, ...props }: InputHTMLAttributes<HTMLInputElement> & { body: string; onMark?: (offset: number, checked: boolean) => void; busy?: boolean; pending?: readonly number[] }) {
   const position = useContext(ChecklistContext);
   const saving = !!position && !!pending?.includes(position.offset);
@@ -64,17 +74,25 @@ function ChecklistCheckbox({ body, onMark, busy, pending, ...props }: InputHTMLA
 }
 /** What a render needs inside the custom elements; read from context so that the element
  * types below stay the same across renders and a checkbox is never remounted mid-click. */
-interface MarkdownState { body: string; onMark?: (offset: number, checked: boolean) => void; busy: boolean; pending?: readonly number[]; mentionUsers?: UserRef[] }
+interface MarkdownState { body: string; onMark?: (offset: number, checked: boolean) => void; busy: boolean; pending?: readonly number[]; mentionUsers?: UserRef[]; renderFence?: MarkdownContentProps["renderFence"]; materialFiles?: boolean; anchorPrefix?: string }
 const MarkdownStateContext = createContext<MarkdownState>({ body: "", busy: false });
+const materialFileUrl = (url: string) => /^file:file-[A-Za-z0-9_-]{1,100}$/.test(url) ? `/api/files/${encodeURIComponent(url.slice(5))}/content` : url;
 function MarkdownLink({ node, href, children, ...props }: ComponentProps<"a"> & ExtraProps) {
   void node;
-  const { mentionUsers } = useContext(MarkdownStateContext);
+  const { mentionUsers, anchorPrefix } = useContext(MarkdownStateContext);
   const profile = mentionUsers !== undefined && href?.match(/^\/contacts\/([1-9][0-9]*)$/);
   if (profile) {
     const user = mentionUsers?.find(person => person.user_id !== null && String(person.user_id) === profile[1]);
     return <UserChip className={md.mention} user={user ?? {user_id:null,display_name:"Недоступный участник",avatar_url:null}} interactive={!!user} />;
   }
-  return <a {...props} href={href}>{children}</a>;
+  // Material headings are scoped to their reader/preview. Resolve author-facing
+  // anchors there without changing links in task comments or to other pages.
+  const scoped = anchorPrefix && /^#(?:section-[1-9]\d{0,4}|[a-z][a-z0-9-]{0,63}-heading-[1-9]\d{0,3})$/.test(href ?? "");
+  const target = scoped ? `${anchorPrefix}-${href!.slice(1)}` : null;
+  return <a {...props} href={target ? `#${target}` : href} onClick={target ? event => {
+    props.onClick?.(event);
+    if (!event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.button === 0) document.getElementById(target)?.focus({ preventScroll: true });
+  } : props.onClick}>{children}</a>;
 }
 function MarkdownInput({ node, ...props }: ComponentProps<"input"> & ExtraProps) {
   void node;
@@ -90,7 +108,8 @@ const components: Components = {
   },
   input: MarkdownInput,
   table: ({ children }) => <div className={md.tableWrap} tabIndex={0} role="region" aria-label="Таблица Markdown"><table>{children}</table></div>,
-  pre: ({ children, node }) => {
+  pre: function MarkdownPre({ children, node }) {
+    const { renderFence } = useContext(MarkdownStateContext);
     const extension = node?.children.some(
       (n) =>
         n.type === "element" &&
@@ -104,13 +123,21 @@ const components: Components = {
     const names = codeNode?.type === "element" && Array.isArray(codeNode.properties.className) ? codeNode.properties.className : [];
     const language = names.find(name => typeof name === "string" && name.startsWith("language-"));
     const name = typeof language === "string" ? language.slice("language-".length) : undefined;
+    if (name === "profkom-html" && renderFence && codeNode?.type === "element") {
+      const source = codeNode.children.map(child => child.type === "text" ? child.value : "").join("");
+      const rendered = renderFence(name, String(codeNode.properties["data-fence-meta"] ?? ""), source);
+      if (rendered !== undefined) return rendered;
+    }
     return extension ? <div>{children}</div> : plainLabel(name) === "Текст" ? <PlainCodeBlock>{children}</PlainCodeBlock>
       : <Suspense fallback={<PlainCodeBlock language={name}>{children}</PlainCodeBlock>}><MarkdownCodeBlock language={name}>{children}</MarkdownCodeBlock></Suspense>;
   },
-  code: ({ className, children }) =>
-    className === "language-gallery" ? (
+  code: function MarkdownCodeElement({ className, children }) {
+    const { materialFiles } = useContext(MarkdownStateContext);
+    const source = String(children).replace(/\n$/, "");
+    const gallery = materialFiles ? source.split("\n").map(line => { const divider = line.indexOf("|");return divider < 0 ? materialFileUrl(line.trim()) : `${materialFileUrl(line.slice(0, divider).trim())}${line.slice(divider)}`; }).join("\n") : source;
+    return className === "language-gallery" ? (
       <Suspense fallback={null}><Gallery
-        initialContent={String(children).replace(/\n$/, "")}
+        initialContent={gallery}
         mode="view"
       /></Suspense>
     ) : className === "language-chip" ? (
@@ -120,23 +147,24 @@ const components: Components = {
       />
     ) : className?.startsWith("language-") ? (
       <Suspense fallback={<code className={className}>{String(children)}</code>}><MarkdownCode className={className} source={String(children)} /></Suspense>
-    ) : <code className={className}>{String(children)}</code>,
+    ) : <code className={className}>{String(children)}</code>;
+  },
 };
 /** A checklist mark is one source offset (a string index of `body`, in UTF-16 code units as
  * micromark counts them): the reader command flips that marker only. */
-export interface MarkdownContentProps { body: string; onChecklistToggle?: (offset: number, checked: boolean) => void; checklistDisabled?: boolean; checklistPending?: readonly number[]; mentionUsers?: UserRef[] }
-export function MarkdownContent({ body, onChecklistToggle, checklistDisabled = false, checklistPending, mentionUsers }: MarkdownContentProps) {
+export interface MarkdownContentProps { body: string; onChecklistToggle?: (offset: number, checked: boolean) => void; checklistDisabled?: boolean; checklistPending?: readonly number[]; mentionUsers?: UserRef[]; renderFence?: (language: string, meta: string, source: string) => ReactNode; materialFiles?: boolean; anchorPrefix?: string }
+export function MarkdownContent({ body, onChecklistToggle, checklistDisabled = false, checklistPending, mentionUsers, renderFence, materialFiles = false, anchorPrefix }: MarkdownContentProps) {
   const needsMath = body.includes("$"), math = useMath(needsMath);
   // Until formulas load, a marker inside $$…$$ would look like a task: no marks meanwhile.
   const marksBusy = checklistDisabled || (needsMath && !math);
   return (
-    <div className={`${s.markdown} ${md.content}`}><MarkdownStateContext.Provider value={{ body, onMark: onChecklistToggle, busy: marksBusy, pending: checklistPending, mentionUsers }}>
+    <div className={`${s.markdown} ${md.content}`}><MarkdownStateContext.Provider value={{ body, onMark: onChecklistToggle, busy: marksBusy, pending: checklistPending, mentionUsers, renderFence, materialFiles, anchorPrefix }}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks, ...(math ? [math.remarkMath] : []), [remarkChecklistPositions, { source: body }]]}
+        remarkPlugins={[remarkGfm, remarkBreaks, ...(renderFence ? [remarkFenceMetadata] : []), ...(math ? [math.remarkMath] : []), [remarkChecklistPositions, { source: body }]]}
         rehypePlugins={math ? [[math.rehypeKatex, { trust: false, strict: "error", maxExpand: 1000, maxSize: 20, macros: {} }]] : []}
         skipHtml
         // Files of a material are API addresses, checked on every request (decision 23).
-        urlTransform={(url) => defaultUrlTransform(apiUrl(url))}
+        urlTransform={(url) => defaultUrlTransform(apiUrl(materialFiles ? materialFileUrl(url) : url))}
         components={components}
       >
         {body}

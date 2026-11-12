@@ -47,6 +47,19 @@ async function mountGuarded(path = "/materials/material-1") {
   await waitForPage(result, () => lazyLoaded(container));return result;
 }
 
+it("sets a guide audience to current leaders without publishing its draft", async () => {
+  mock = installMockTransport("chair", { delay: 0 });const m = mock.state.materials[0];
+  m.kind = "guide";m.audience = "block";m.capabilities.push("edit_audience");
+  const previous = JSON.stringify(m.published_content);
+  const command = vi.spyOn(materialsApi, "audience");
+  await open();await click(button(page!.container, "Редактировать материал"));
+  await click(button(page!.container, "Только свой блок"));
+  await click(button(document.body, "Руководители и заместители"));
+  expect(command).toHaveBeenCalledWith(m.material_id, "leadership", expect.objectContaining({ expected_revision: expect.any(Number) }));
+  expect(m.audience).toBe("leadership");
+  expect(JSON.stringify(m.published_content)).toBe(previous);
+});
+
 it("opens published content read-only and only the pencil reveals the stored editing source", async () => {
   mock = installMockTransport("chair", { delay: 0 });
   const m = mock.state.materials[0];m.published_content = richText("ОПУБЛИКОВАННЫЙ ТЕКСТ");m.draft_content = richText("СЫРОЙ ЧЕРНОВИК [файл](file:local-source)");
@@ -62,6 +75,31 @@ it("opens published content read-only and only the pencil reveals the stored edi
   await submit(publication);
   expect(m.published_content?.body).toBe("СЫРОЙ ЧЕРНОВИК [файл](file:local-source)");
   expect(field(page!.container, "body").value).toBe("НЕСОХРАНЁННЫЙ ВВОД");
+});
+
+it("keeps the guide format in a draft save without enabling HTML in other materials", async () => {
+  mock = installMockTransport("chair", { delay: 0 });const m = mock.state.materials[0];
+  m.kind = "guide";m.capabilities.push("edit_html_material");
+  m.draft_content = { format: "markdown-embeds-v1", body: "Текст расширенного гайда", render: { schema_version: 1, policy_version: 1, source_hash: "0".repeat(64), blocks: [], diagnostics: [], file_ids: [] } };
+  await open();await click(button(page!.container, "Редактировать материал"));
+  await waitForPage(page!, () => !!page!.container.querySelector('[name="body"]'));
+  const update = vi.spyOn(materialsApi, "update");
+  await change(field(page!.container, "body"), "Сохранённый новый текст");
+  await submit(form(page!.container, "Сохранить черновик"));await waitForPage(page!);
+  expect(update.mock.calls[0][1].content).toEqual({ format: "markdown-embeds-v1", body: "Сохранённый новый текст" });
+});
+
+it("blocks publication of an invalid formatted draft, while keeping its source editable", async () => {
+  mock = installMockTransport("chair", { delay: 0 });const m = mock.state.materials[0];
+  m.kind = "guide";m.capabilities.push("edit_html_material");
+  m.draft_content = { format: "markdown-embeds-v1", body: '```profkom-html\n<script>example</script>\n```', render: { schema_version: 1, policy_version: 1, source_hash: "0".repeat(64), blocks: [], diagnostics: [{ block_id: null, code: "invalid_id", line: 1, message: "Укажите идентификатор вставки." }], file_ids: [] } };
+  await open();await click(button(page!.container, "Редактировать материал"));
+  await waitForPage(page!, () => !!page!.container.querySelector('[name="body"]'));
+  expect(field(page!.container, "body").value).toContain("<script>example</script>");
+  expect(button(page!.container, "Опубликовать сохранённый черновик").disabled).toBe(true);
+  expect(button(page!.container, "Сохранить черновик").disabled).toBe(false);
+  expect(page!.container.textContent).toContain("Укажите идентификатор вставки");
+  expect(page!.container.querySelector("script")).toBeNull();
 });
 
 it("creates a source draft on a separate page and never publishes it implicitly", async () => {

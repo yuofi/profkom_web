@@ -1,0 +1,607 @@
+[
+  {
+    "name": "panel",
+    "body": "```profkom-html id=embed-panel\n<section class=\"guide-card guide-gradient-info\"><h3>Первый шаг</h3><p>Подготовьте материалы.</p></section>\n```",
+    "render": {
+      "schema_version": 1,
+      "policy_version": 1,
+      "source_hash": "d016513e42898c6a3b5b2d4538c10d9f2e2abd6c177748250cab69077008bd92",
+      "blocks": [
+        {
+          "id": "embed-panel",
+          "source": "<section class=\"guide-card guide-gradient-info\"><h3>Первый шаг</h3><p>Подготовьте материалы.</p></section>\n",
+          "nodes": [
+            {
+              "tag": "section",
+              "text": "",
+              "attrs": {
+                "classes": [
+                  "guide-card",
+                  "guide-gradient-info"
+                ]
+              },
+              "children": [
+                {
+                  "tag": "h3",
+                  "text": "",
+                  "attrs": {
+                    "anchor": "embed-panel-heading-1"
+                  },
+                  "children": [
+                    {
+                      "tag": "text",
+                      "text": "Первый шаг",
+                      "attrs": {},
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "tag": "p",
+                  "text": "",
+                  "attrs": {},
+                  "children": [
+                    {
+                      "tag": "text",
+                      "text": "Подготовьте материалы.",
+                      "attrs": {},
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "tag": "text",
+              "text": "\n",
+              "attrs": {},
+              "children": []
+            }
+          ],
+          "text": "Первый шаг Подготовьте материалы."
+        }
+      ],
+      "diagnostics": [],
+      "file_ids": []
+    }
+  },
+  {
+    "name": "navigation",
+    "body": "## Начало\n\n```profkom-html id=embed-links\n<a class=\"guide-button\" href=\"/materials/example\">Другой гайд</a><a href=\"#section-1\">В начало</a><a href=\"https://example.org\">На сайт</a>\n```",
+    "render": {
+      "schema_version": 1,
+      "policy_version": 1,
+      "source_hash": "4c3542b74abcf2a137ee92550c28d8a76730469ef97071ee3f91ab4361188a10",
+      "blocks": [
+        {
+          "id": "embed-links",
+          "source": "<a class=\"guide-button\" href=\"/materials/example\">Другой гайд</a><a href=\"#section-1\">В начало</a><a href=\"https://example.org\">На сайт</a>\n",
+          "nodes": [
+            {
+              "tag": "a",
+              "text": "",
+              "attrs": {
+                "classes": [
+                  "guide-button"
+                ],
+                "href": "/materials/example"
+              },
+              "children": [
+                {
+                  "tag": "text",
+                  "text": "Другой гайд",
+                  "attrs": {},
+                  "children": []
+                }
+              ]
+            },
+            {
+              "tag": "a",
+              "text": "",
+              "attrs": {
+                "href": "#section-1"
+              },
+              "children": [
+                {
+                  "tag": "text",
+                  "text": "В начало",
+                  "attrs": {},
+                  "children": []
+                }
+              ]
+            },
+            {
+              "tag": "a",
+              "text": "",
+              "attrs": {
+                "href": "https://example.org"
+              },
+              "children": [
+                {
+                  "tag": "text",
+                  "text": "На сайт",
+                  "attrs": {},
+                  "children": []
+                }
+              ]
+            },
+            {
+              "tag": "text",
+              "text": "\n",
+              "attrs": {},
+              "children": []
+            }
+          ],
+          "text": "Другой гайд В начало На сайт"
+        }
+      ],
+      "diagnostics": [],
+      "file_ids": []
+    }
+  },
+  {
+    "name": "table",
+    "body": "```profkom-html id=embed-table\n<table class=\"guide-compact\"><caption>План</caption><thead><tr><th scope=\"col\">Когда</th><th scope=\"col\">Что</th></tr></thead><tbody><tr><th scope=\"row\">Сегодня</th><td>Начать</td></tr></tbody></table>\n```",
+    "render": {
+      "schema_version": 1,
+      "policy_version": 1,
+      "source_hash": "4ecea304ef9d481483b76ce67762d4dbfc0ec53a65d6b4551d3ad1b0ec995250",
+      "blocks": [
+        {
+          "id": "embed-table",
+          "source": "<table class=\"guide-compact\"><caption>План</caption><thead><tr><th scope=\"col\">Когда</th><th scope=\"col\">Что</th></tr></thead><tbody><tr><th scope=\"row\">Сегодня</th><td>Начать</td></tr></tbody></table>\n",
+          "nodes": [
+            {
+              "tag": "table",
+              "text": "",
+              "attrs": {
+                "classes": [
+                  "guide-compact"
+                ]
+              },
+              "children": [
+                {
+                  "tag": "caption",
+                  "text": "",
+                  "attrs": {},
+                  "children": [
+                    {
+                      "tag": "text",
+                      "text": "План",
+                      "attrs": {},
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "tag": "thead",
+                  "text": "",
+                  "attrs": {},
+                  "children": [
+                    {
+                      "tag": "tr",
+                      "text": "",
+                      "attrs": {},
+                      "children": [
+                        {
+                          "tag": "th",
+                          "text": "",
+                          "attrs": {
+                            "scope": "col"
+                          },
+                          "children": [
+                            {
+                              "tag": "text",
+                              "text": "Когда",
+                              "attrs": {},
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "th",
+                          "text": "",
+                          "attrs": {
+                            "scope": "col"
+                          },
+                          "children": [
+                            {
+                              "tag": "text",
+                              "text": "Что",
+                              "attrs": {},
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "tag": "tbody",
+                  "text": "",
+                  "attrs": {},
+                  "children": [
+                    {
+                      "tag": "tr",
+                      "text": "",
+                      "attrs": {},
+                      "children": [
+                        {
+                          "tag": "th",
+                          "text": "",
+                          "attrs": {
+                            "scope": "row"
+                          },
+                          "children": [
+                            {
+                              "tag": "text",
+                              "text": "Сегодня",
+                              "attrs": {},
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "td",
+                          "text": "",
+                          "attrs": {},
+                          "children": [
+                            {
+                              "tag": "text",
+                              "text": "Начать",
+                              "attrs": {},
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "tag": "text",
+              "text": "\n",
+              "attrs": {},
+              "children": []
+            }
+          ],
+          "text": "План Когда Что Сегодня Начать"
+        }
+      ],
+      "diagnostics": [],
+      "file_ids": []
+    }
+  },
+  {
+    "name": "image",
+    "body": "```profkom-html id=embed-image\n<figure><img src=\"file:file-00000000-0000-4000-8000-000000000001\" alt=\"Синтетическая иллюстрация\" width=\"640\" height=\"480\"><figcaption>Подпись</figcaption></figure>\n```",
+    "render": {
+      "schema_version": 1,
+      "policy_version": 1,
+      "source_hash": "211ff8b6c84ed883dcdd7828cd50a83de326cbe8b15755bcfa18dbbed3c8a6f7",
+      "blocks": [
+        {
+          "id": "embed-image",
+          "source": "<figure><img src=\"file:file-00000000-0000-4000-8000-000000000001\" alt=\"Синтетическая иллюстрация\" width=\"640\" height=\"480\"><figcaption>Подпись</figcaption></figure>\n",
+          "nodes": [
+            {
+              "tag": "figure",
+              "text": "",
+              "attrs": {},
+              "children": [
+                {
+                  "tag": "img",
+                  "text": "",
+                  "attrs": {
+                    "src": "file:file-00000000-0000-4000-8000-000000000001",
+                    "alt": "Синтетическая иллюстрация",
+                    "width": 640,
+                    "height": 480
+                  },
+                  "children": []
+                },
+                {
+                  "tag": "figcaption",
+                  "text": "",
+                  "attrs": {},
+                  "children": [
+                    {
+                      "tag": "text",
+                      "text": "Подпись",
+                      "attrs": {},
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "tag": "text",
+              "text": "\n",
+              "attrs": {},
+              "children": []
+            }
+          ],
+          "text": "Синтетическая иллюстрация Подпись"
+        }
+      ],
+      "diagnostics": [],
+      "file_ids": [
+        "file-00000000-0000-4000-8000-000000000001"
+      ]
+    }
+  },
+  {
+    "name": "faq",
+    "body": "```profkom-html id=embed-faq\n<details class=\"guide-card guide-tone-neutral\"><summary>Как начать?</summary><p>Выберите задачу.</p></details>\n```",
+    "render": {
+      "schema_version": 1,
+      "policy_version": 1,
+      "source_hash": "f56bcb855baff0d4d37db4c0ea648db30429582e4224a0c3026084e098862326",
+      "blocks": [
+        {
+          "id": "embed-faq",
+          "source": "<details class=\"guide-card guide-tone-neutral\"><summary>Как начать?</summary><p>Выберите задачу.</p></details>\n",
+          "nodes": [
+            {
+              "tag": "details",
+              "text": "",
+              "attrs": {
+                "classes": [
+                  "guide-card",
+                  "guide-tone-neutral"
+                ]
+              },
+              "children": [
+                {
+                  "tag": "summary",
+                  "text": "",
+                  "attrs": {},
+                  "children": [
+                    {
+                      "tag": "text",
+                      "text": "Как начать?",
+                      "attrs": {},
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "tag": "p",
+                  "text": "",
+                  "attrs": {},
+                  "children": [
+                    {
+                      "tag": "text",
+                      "text": "Выберите задачу.",
+                      "attrs": {},
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "tag": "text",
+              "text": "\n",
+              "attrs": {},
+              "children": []
+            }
+          ],
+          "text": "Как начать? Выберите задачу."
+        }
+      ],
+      "diagnostics": [],
+      "file_ids": []
+    }
+  },
+  {
+    "name": "nested_quote",
+    "body": "> ```profkom-html id=embed-quote\n> <p>Внутри цитаты</p>\n> ```",
+    "render": {
+      "schema_version": 1,
+      "policy_version": 1,
+      "source_hash": "aae12f3d35f27ed528fc8cfdd70702c1a344b39bf7663826b674a10648169861",
+      "blocks": [
+        {
+          "id": "embed-quote",
+          "source": "<p>Внутри цитаты</p>\n",
+          "nodes": [
+            {
+              "tag": "p",
+              "text": "",
+              "attrs": {},
+              "children": [
+                {
+                  "tag": "text",
+                  "text": "Внутри цитаты",
+                  "attrs": {},
+                  "children": []
+                }
+              ]
+            },
+            {
+              "tag": "text",
+              "text": "\n",
+              "attrs": {},
+              "children": []
+            }
+          ],
+          "text": "Внутри цитаты"
+        }
+      ],
+      "diagnostics": [],
+      "file_ids": []
+    }
+  },
+  {
+    "name": "nested_list",
+    "body": "- ```profkom-html id=embed-list\n  <p>Внутри списка</p>\n  ```",
+    "render": {
+      "schema_version": 1,
+      "policy_version": 1,
+      "source_hash": "f94496c51f37a0df102a2be026b3349c5f29c2725a2aaeb826f73200b8698390",
+      "blocks": [
+        {
+          "id": "embed-list",
+          "source": "<p>Внутри списка</p>\n",
+          "nodes": [
+            {
+              "tag": "p",
+              "text": "",
+              "attrs": {},
+              "children": [
+                {
+                  "tag": "text",
+                  "text": "Внутри списка",
+                  "attrs": {},
+                  "children": []
+                }
+              ]
+            },
+            {
+              "tag": "text",
+              "text": "\n",
+              "attrs": {},
+              "children": []
+            }
+          ],
+          "text": "Внутри списка"
+        }
+      ],
+      "diagnostics": [],
+      "file_ids": []
+    }
+  },
+  {
+    "name": "code_examples",
+    "body": "````markdown\n```profkom-html id=embed-code\n<p>Не исполняется</p>\n```\n````\n\n    ```profkom-html id=embed-code-two\n    <p>Тоже код</p>\n    ```",
+    "render": {
+      "schema_version": 1,
+      "policy_version": 1,
+      "source_hash": "80f7b08e39b5dd9db2e62770923e996a4ffdab1677faaa5e91fb62ac3dda4571",
+      "blocks": [],
+      "diagnostics": [],
+      "file_ids": []
+    }
+  },
+  {
+    "name": "depth_twelve",
+    "body": "```profkom-html id=embed-depth\n<div><div><div><div><div><div><div><div><div><div><div><p>Допустимая вложенность</p></div></div></div></div></div></div></div></div></div></div></div>\n```",
+    "render": {
+      "schema_version": 1,
+      "policy_version": 1,
+      "source_hash": "ca32b1082a5bc6d2c15939c1df33769ade7cdeb8e8cc1da71cd87a979e2efbb9",
+      "blocks": [
+        {
+          "id": "embed-depth",
+          "source": "<div><div><div><div><div><div><div><div><div><div><div><p>Допустимая вложенность</p></div></div></div></div></div></div></div></div></div></div></div>\n",
+          "nodes": [
+            {
+              "tag": "div",
+              "text": "",
+              "attrs": {},
+              "children": [
+                {
+                  "tag": "div",
+                  "text": "",
+                  "attrs": {},
+                  "children": [
+                    {
+                      "tag": "div",
+                      "text": "",
+                      "attrs": {},
+                      "children": [
+                        {
+                          "tag": "div",
+                          "text": "",
+                          "attrs": {},
+                          "children": [
+                            {
+                              "tag": "div",
+                              "text": "",
+                              "attrs": {},
+                              "children": [
+                                {
+                                  "tag": "div",
+                                  "text": "",
+                                  "attrs": {},
+                                  "children": [
+                                    {
+                                      "tag": "div",
+                                      "text": "",
+                                      "attrs": {},
+                                      "children": [
+                                        {
+                                          "tag": "div",
+                                          "text": "",
+                                          "attrs": {},
+                                          "children": [
+                                            {
+                                              "tag": "div",
+                                              "text": "",
+                                              "attrs": {},
+                                              "children": [
+                                                {
+                                                  "tag": "div",
+                                                  "text": "",
+                                                  "attrs": {},
+                                                  "children": [
+                                                    {
+                                                      "tag": "div",
+                                                      "text": "",
+                                                      "attrs": {},
+                                                      "children": [
+                                                        {
+                                                          "tag": "p",
+                                                          "text": "",
+                                                          "attrs": {},
+                                                          "children": [
+                                                            {
+                                                              "tag": "text",
+                                                              "text": "Допустимая вложенность",
+                                                              "attrs": {},
+                                                              "children": []
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "tag": "text",
+              "text": "\n",
+              "attrs": {},
+              "children": []
+            }
+          ],
+          "text": "Допустимая вложенность"
+        }
+      ],
+      "diagnostics": [],
+      "file_ids": []
+    }
+  }
+]

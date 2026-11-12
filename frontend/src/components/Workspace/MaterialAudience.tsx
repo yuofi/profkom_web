@@ -10,7 +10,7 @@ import { Glyph } from "./WorkspaceUI";
 import { recordOwnChange, useOwnRevisions } from "./ownRevisions";
 import s from "./Workspace.module.css";
 
-const labels = { block: "Только свой блок", everyone: "Все активисты" } as const;
+const labels = { block: "Только свой блок", everyone: "Все активисты", leadership: "Руководители и заместители" } as const;
 
 /** A visibility command neither saves the text editor nor publishes its draft. */
 export function MaterialAudience({ material }: { material: Material }) {
@@ -20,7 +20,7 @@ export function MaterialAudience({ material }: { material: Material }) {
   const close = useCallback(() => { if (!saving.current) { setRevision(null);setError(""); } }, []);
   if (!material.audience) return null;
   const editable = can(material, "edit_audience"), current = material.audience;
-  const choose = async (audience: "block" | "everyone") => {
+  const choose = async (audience: keyof typeof labels) => {
     if (!editable || saving.current || revision === null) return;
     if (audience === current) { close();return; }
     saving.current = true;setBusy(true);setError("");
@@ -41,6 +41,7 @@ export function MaterialAudience({ material }: { material: Material }) {
     <AnchoredPopover open={revision !== null && editable} anchorRef={anchor} label="Кто видит гайд" onRequestClose={close} busy={busy} width={330}>
       <div className={s.stack} role="group" aria-label="Видимость гайда">
         {(Object.keys(labels) as (keyof typeof labels)[]).map(value => <button key={value} type="button" className={s.button} aria-pressed={current === value} disabled={busy} onClick={() => { void choose(value); }}>{labels[value]}</button>)}
+        <p className={s.muted}>Руководители — председатель и его замы, мастера блоков, главорги, ответственные и их заместители.</p>
         {error && <p className={s.error} role="alert">{error}</p>}
       </div>
     </AnchoredPopover>
