@@ -12,6 +12,8 @@
 | [Как создавать гайды](authoring.md) | Все активисты |
 | [Markdown и HTML](formatting.md) | Все активисты |
 
+Ссылки на рабочие публикации и контрольные суммы: [catalog.json](catalog.json).
+
 ## Подготовка публикации
 
 `GUIDE_TRACKER`, `GUIDE_OVERVIEW`, `GUIDE_KKR`, `GUIDE_AUTHORING` и

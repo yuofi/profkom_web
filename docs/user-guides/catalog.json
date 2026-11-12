@@ -3,30 +3,45 @@
     "title": "Как работать с трекером",
     "description": "От создания задачи до готового результата: очереди, исполнители, статусы, файлы и уведомления команды.",
     "source": "tracker.md",
-    "audience": "everyone"
+    "audience": "everyone",
+    "material_id": "6d7192f2-74cb-4967-9e35-3938e8a0b15c",
+    "published_url": "https://profcom-cmc.ru/materials/6d7192f2-74cb-4967-9e35-3938e8a0b15c",
+    "published_source_sha256": "49535b0133130c13fbfc3b3420547960289f29c3282218d24641869679d7f096"
   },
   "overview": {
     "title": "Сайт Профкома: руководство участника",
     "description": "Первые шаги, профиль, команды, контакты, задачи, календарь, материалы и помощь.",
     "source": "overview.md",
-    "audience": "everyone"
+    "audience": "everyone",
+    "material_id": "dd268682-8837-4b24-a072-d053cab7fadb",
+    "published_url": "https://profcom-cmc.ru/materials/dd268682-8837-4b24-a072-d053cab7fadb",
+    "published_source_sha256": "846998629d2809cd775dfad9d975a7784035e40e2d1623113073e3458d5c9b43"
   },
   "kkr": {
     "title": "Как заполнять ККР на сайте",
     "description": "Руководителям: оценка задач и исполнителей, часы, сроки, сезон и проверка итогов.",
     "source": "kkr.md",
-    "audience": "leadership"
+    "audience": "leadership",
+    "material_id": "897ffde7-b9cc-486f-bc99-042401ecaf97",
+    "published_url": "https://profcom-cmc.ru/materials/897ffde7-b9cc-486f-bc99-042401ecaf97",
+    "published_source_sha256": "c49972cdc84fdfd044ded2c8bdc7e8eea2602501fdd13ca518611a202504cc2a"
   },
   "authoring": {
     "title": "Как создавать и обновлять гайды",
     "description": "Черновики и публикация, права читателей, изображения и оформленные вставки — пошагово.",
     "source": "authoring.md",
-    "audience": "everyone"
+    "audience": "everyone",
+    "material_id": "045577be-609d-44fd-a307-a211e304a358",
+    "published_url": "https://profcom-cmc.ru/materials/045577be-609d-44fd-a307-a211e304a358",
+    "published_source_sha256": "43698f7e49fdb5695eaea05c60b50aa4d24188ce3d38f8a2164db055a2a33fd0"
   },
   "formatting": {
     "title": "Markdown и HTML: справочник оформления",
     "description": "Поддерживаемая разметка, таблицы, ссылки, изображения, кнопки, плашки и готовые примеры.",
     "source": "formatting.md",
-    "audience": "everyone"
+    "audience": "everyone",
+    "material_id": "ac5b8a0b-7aed-4a0a-88e2-ba9d441b5ed2",
+    "published_url": "https://profcom-cmc.ru/materials/ac5b8a0b-7aed-4a0a-88e2-ba9d441b5ed2",
+    "published_source_sha256": "e72a65a92163c793cd0e399e3bf973059afab7d483730987cfa8776c14ffd14b"
   }
 }

@@ -4,9 +4,14 @@
 Git-операции, SSH, тестовый сервер, production и реальные VK/S3 требуют явного
 разрешения владельца на конкретную среду и действие. См. [AGENTS.md](AGENTS.md).
 
-Последнее обновление: [регистрация C — 12 ноября 2026](docs/operations/REGISTRATION_C_RELEASE_20261112.md),
-backend `119168f`, frontend `f01746d` на новом `profcom-cmc.ru`. Бэкап и сохранность
-проверены; схема SQLite и конфигурация не менялись.
+Последнее обновление: [HTML-вставки и пять руководств — 12 ноября 2026](docs/operations/GUIDES_HTML_RELEASE_20261112.md),
+backend и frontend `fde504c` на новом `profcom-cmc.ru`. Бэкап, добавочная миграция и
+сохранность всех строк проверены; `GUIDE_HTML_EMBEDS_ENABLED=true`, SQLite DELETE.
+После публикации HTML и аудитории `leadership` старый backend несовместим: откат
+требует совместимого кода, без восстановления старой БД поверх новых записей.
+
+Предыдущая версия: [регистрация C — 12 ноября 2026](docs/operations/REGISTRATION_C_RELEASE_20261112.md),
+backend `119168f`, frontend `f01746d`.
 
 Предыдущая крупная поставка в этом checkout: [блоки, сезоны задач и VK-беседы — 11 ноября
 2026](docs/operations/BLOCK_CHAT_RELEASE_20261111.md), сайт `ff83577` на новом
