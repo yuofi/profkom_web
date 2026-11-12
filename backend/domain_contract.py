@@ -158,6 +158,7 @@ class BlockRequest(BaseModel):
 class Material(BaseModel):
     material_id: str
     kind: Literal["guide", "general", "kmb"]
+    catalog_section: Literal["guide", "general"] | None = None
     owner_block_id: str | None
     title: str
     description: str

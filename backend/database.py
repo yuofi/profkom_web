@@ -1533,6 +1533,17 @@ def _ensure_sqlite_materials_audience() -> None:
 _ensure_sqlite_materials_audience()
 
 
+def _ensure_sqlite_materials_catalog_section() -> None:
+    """An optional placement override; existing materials keep their section and data."""
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(materials)")).fetchall()
+        if rows and "catalog_section" not in {r[1] for r in rows}:
+            conn.execute(text("ALTER TABLE materials ADD COLUMN catalog_section VARCHAR"))
+
+
+_ensure_sqlite_materials_catalog_section()
+
+
 def _ensure_sqlite_memberships_observed_since() -> None:
     """Add observed_since to memberships of databases migrated before it (A-DIR-18). The
     start recorded by the migration report becomes the row's own value."""

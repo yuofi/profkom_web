@@ -31,7 +31,7 @@ const MaterialEditor = lazy(() => import("./MaterialEditor").then(module => ({ d
 const loading = <p className={s.muted} role="status">Загружаем…</p>;
 // The sections of the catalogue in their order; a kind the list does not know reads as a document, as its badge does.
 const SECTIONS = [{ kind: "kmb", label: "КМБ" }, { kind: "general", label: "Общие документы" }, { kind: "guide", label: "Гайды блоков" }];
-const sectionOf = (m: Material) => SECTIONS.some(section => section.kind === m.kind) ? m.kind : "general";
+const sectionOf = (m: Material) => m.catalog_section ?? (SECTIONS.some(section => section.kind === m.kind) ? m.kind : "general");
 export function MaterialsPage() {
   const { session } = useSession();
   const [params, setParams] = useSearchParams();
@@ -45,7 +45,7 @@ export function MaterialsPage() {
   });
   const headingId = useId();
   const visibleItems = (query.data?.items ?? []).filter((m) =>
-    (!kind || m.kind === kind) && `${m.title} ${m.description}`.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru")),
+    (!kind || (m.catalog_section ?? m.kind) === kind) && `${m.title} ${m.description}`.toLocaleLowerCase("ru").includes(search.trim().toLocaleLowerCase("ru")),
   );
   const clearFilters = () => setParams(previous => { const next = new URLSearchParams(previous);next.delete("q");next.delete("kind");return next; }, { replace: true });
   // КМБ and documents first, then published guides; guides still in preparation fold away.

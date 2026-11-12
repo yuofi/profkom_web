@@ -21,6 +21,9 @@ export const materialsApi = {
       original_link?: string | null;
     },
   ) => request<Material>("patch", `/materials/${idPath(id)}`, data),
+  /** Placement is changed separately, without creating or publishing a content draft. */
+  catalogSection: (id: string, catalog_section: "guide" | "general" | null, data: Revision) =>
+    request<Material>("patch", `/materials/${idPath(id)}`, { ...data, catalog_section }),
   preview: (id: string, data: Revision & { content: MaterialText }, signal?: AbortSignal) =>
     request<MaterialText>("post", `/materials/${idPath(id)}/preview`, data, undefined, signal),
   publish: (id: string, data: Revision) =>

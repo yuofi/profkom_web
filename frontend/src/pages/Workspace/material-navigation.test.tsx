@@ -114,3 +114,22 @@ it("asks for every missing field at once in the main form and clears each mark o
   expect(field(page.container, "description").getAttribute("aria-invalid")).toBe("true");
   await act(async () => {});
 });
+
+it("places a shared guide in general documents without changing its type, link or audience", async () => {
+  mock = installMockTransport("chair", { delay: 0 });
+  const original = mock.state.materials.find(m => m.kind === "guide")!;
+  const moved = { ...original, material_id: "shared-handbook", title: "Общее руководство", catalog_section: "general" as const, audience: "leadership" as const, placeholder: false };
+  mock.state.materials.push(moved);
+  page = await mountWorkspace(routes, { path: "/materials" });await waitForPage(page);
+  const general = [...page.container.querySelectorAll<HTMLElement>('[role="group"]')].find(group => document.getElementById(group.getAttribute("aria-labelledby")!)?.textContent === "Общие документы · 1")!;
+  expect(general.querySelector('a[href="/materials/shared-handbook"]')?.textContent).toBe(moved.title);
+  expect(general.textContent).toContain("Для руководителей и заместителей");
+  await change(page.container.querySelector("select")!, "guide");
+  expect(page.container.querySelector('a[href="/materials/shared-handbook"]')).toBeNull();
+  expect(page.container.querySelector(`a[href="/materials/${original.material_id}"]`)).not.toBeNull();
+  await change(page.container.querySelector("select")!, "general");
+  expect(page.container.querySelector('a[href="/materials/shared-handbook"]')).not.toBeNull();
+  expect(page.container.querySelector(`a[href="/materials/${original.material_id}"]`)).toBeNull();
+  await change(page.container.querySelector<HTMLInputElement>("input")!, "общее");
+  expect(page.container.querySelector('a[href="/materials/shared-handbook"]')).not.toBeNull();
+});

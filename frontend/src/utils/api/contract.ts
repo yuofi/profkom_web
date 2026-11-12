@@ -925,6 +925,8 @@ export interface Material extends Versioned {
   editor_user_ids?: number[];
   material_id: string;
   kind: string;
+  /** Catalogue placement only; ownership, format and permissions stay authoritative. */
+  catalog_section?: "guide" | "general" | null;
   owner_block_id: string | null;
   title: string;
   description: string;

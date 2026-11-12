@@ -374,3 +374,9 @@ it("keeps the demo journal on the wire contract: edits, a closed season's correc
     expect(corrected.items.map(item => [item.entry.reason, item.entry.changes[0].label])).toEqual([["Доклад отметили на совете", "Исходные поля получателя"]]);
   } finally { mock.restore(); }
 });
+
+it("accepts catalogue placement separately from material kind without arbitrary sections", () => {
+  const material = createFixtures("chair").materials[0];
+  for (const catalog_section of [undefined, null, "general", "guide"]) expect(wireIssues("Material", { ...material, catalog_section })).toEqual([]);
+  expect(wireIssues("Material", { ...material, catalog_section: "public" })).not.toEqual([]);
+});

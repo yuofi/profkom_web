@@ -422,7 +422,7 @@ def test_schema_upgrade_twice_preserves_existing_text_and_rows(tmp_path):
         with sqlite3.connect(path) as c:
             row = c.execute("SELECT * FROM materials WHERE material_id='kept-material'").fetchone()
             assert row[:20] == before[0]
-            assert row[20:] == ("markdown", "markdown")
+            assert row[20:] == ("markdown", "markdown", None)
             assert c.execute("SELECT count(*) FROM material_render_artifacts").fetchone()[0] == 0
             assert c.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
             assert c.execute("PRAGMA foreign_key_check").fetchall() == []

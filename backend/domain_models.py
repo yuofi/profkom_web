@@ -143,6 +143,8 @@ class MaterialORM(Base):
     material_id = Column(String, primary_key=True)
     legacy_guide_id = Column(Integer, nullable=True, unique=True, index=True)
     kind = Column(String, nullable=False)
+    # Catalogue placement is independent of the guide's format, owner and ACL.
+    catalog_section = Column(String, nullable=True)
     owner_block_id = Column(
         String, ForeignKey("block_metadata.block_id"), nullable=True, index=True
     )

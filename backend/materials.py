@@ -32,6 +32,7 @@ class Create(Command):
 
 
 class Patch(Revision):
+    catalog_section: Literal["guide", "general"] | None = None
     title: str | None = None
     description: str | None = None
     content: RichText | None = None
@@ -153,6 +154,8 @@ def dto(s, m, uid, *, detail=True):
     )
     if m.kind == "guide" and m.owner_block_id:
         data["audience"] = m.audience if m.audience in {"everyone", "leadership"} else "block"
+    if m.catalog_section is not None:
+        data["catalog_section"] = m.catalog_section
     if edit:
         data["capabilities"] += ["edit_material", "publish_material", "delete_material"]
         if settings.GUIDE_HTML_EMBEDS_ENABLED and m.kind == "guide":
@@ -259,7 +262,7 @@ def _prime_editors(s, materials):
 
 
 def deleted_dto(m):
-    return dict(
+    data = dict(
         material_id=m.material_id,
         kind=m.kind,
         owner_block_id=m.owner_block_id,
@@ -271,6 +274,9 @@ def deleted_dto(m):
         capabilities=["restore_material"],
         deleted_at=m.deleted_at,
     )
+    if m.catalog_section is not None:
+        data["catalog_section"] = m.catalog_section
+    return data
 
 
 def block_material_id(s, bid):
@@ -563,6 +569,28 @@ def register_routes(router):
         response_model_exclude_unset=True,
     )
     def patch(material_id: str, payload: Patch, cur: User = Depends(get_current_user)):
+        if "catalog_section" in payload.model_fields_set:
+            # Placement is published metadata, not a content draft. It never
+            # recompiles or republishes the source, nor changes its audience.
+            with db.atomic(), db._session() as s:
+                recheck_current_user(cur, working=True)
+                m = row(s, material_id)
+                require_edit(material_id, cur.user_id)
+                if not access.allowed(cur.user_id, "material.manage_editors"):
+                    fail(403, "Only the chair and deputies change catalogue sections")
+                version(m, payload.expected_revision)
+                if m.kind != "guide":
+                    fail(422, "Only a guide has a catalogue placement override")
+                if payload.model_fields_set != {"expected_revision", "catalog_section"}:
+                    fail(422, "Change the catalogue section separately from content")
+                before = m.catalog_section
+                if before != payload.catalog_section:
+                    m.catalog_section = payload.catalog_section
+                    m.revision += 1
+                    audit(s, "material", material_id, cur.user_id, "Material catalogue section changed",
+                          dict(catalog_section=before), dict(catalog_section=m.catalog_section))
+                    s.commit()
+                return dto(s, m, cur.user_id)
         content, rendered = prepare_content(material_id, payload, cur)
         with db.atomic(), db._session() as s:
             recheck_current_user(cur, working=True)
