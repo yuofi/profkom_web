@@ -14,7 +14,7 @@ let page: Awaited<ReturnType<typeof mountWorkspace>> | undefined;
 afterEach(async () => { await page?.cleanup();page = undefined; });
 const text = (value: string): GuideNode => ({ tag: "text", text: value, attrs: {}, children: [] });
 const node = (tag: string, children: GuideNode[] = [], attrs: GuideNode["attrs"] = {}): GuideNode => ({ tag, text: "", attrs, children });
-function fixture(nodes: GuideNode[] = [node("section", [node("h2", [text("Шаг первый")], { anchor: "embed-test-heading-1" }), node("p", [text("Содержимое плашки")])], { classes: ["guide-card", "guide-gradient-info"] })]): MaterialText {
+function fixture(nodes: GuideNode[] = [node("section", [node("h2", [text("Шаг первый")], { anchor: "embed-test-heading-1" }), node("p", [text("Содержимое плашки")])], { classes: ["guide-card", "guide-gradient-info"] })]): MaterialText & { render: GuideRender } {
   const source = "<section>Синтетический исходник</section>\n";
   return { format: "markdown-embeds-v1", body: `## Начало\n\n\`\`\`profkom-html id=embed-test\n${source}\`\`\`\n\n## Конец`, render: { schema_version: 1, policy_version: 1, source_hash: "a".repeat(64), blocks: [{ id: "embed-test", source, nodes, text: "Текст вставки" }], diagnostics: [], file_ids: [] } };
 }

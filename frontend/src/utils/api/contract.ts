@@ -1,4 +1,5 @@
 import type { TaskChatAnnouncement } from "./taskChat.types";
+import type { JournalRender } from "./journal";
 import type { BlockDeletionRequest } from "./blockLifecycle.types";
 /** API 1.3. Public, assessment-input and calculated DTOs are deliberately separate. */
 export interface Page<T> {
@@ -913,9 +914,9 @@ export interface GuideRender {
   file_ids: string[];
 }
 export interface MaterialText {
-  format: "markdown" | "markdown-embeds-v1";
+  format: "markdown" | "markdown-embeds-v1" | "journal-v1";
   body: string;
-  render?: GuideRender | null;
+  render?: GuideRender | JournalRender | null;
 }
 export interface Material extends Versioned {
   deleted_at?: string | null;

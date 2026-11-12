@@ -185,6 +185,8 @@ export function MaterialPage() {
   const m = !query.error || canRetainData(query.error) ? query.data : undefined;
   const manageable = !!m && (can(m, "edit_material") || can(m, "publish_material") || can(m, "edit_audience") || can(m, "delete_material") || m.owner_block_id === null && can(session, "manage_material_editors"));
   const missing = !!query.error && !m && [403, 404].includes(normalizeApiError(query.error).status);
+  const journal = m?.published_content?.format === "journal-v1";
+  const Reading = journal ? "div" : Card;
   // A refusal or a lost right ends the edit mode; a later recovery opens read-only.
   const drop = editing && (!!query.error && !canRetainData(query.error) || !!m && !manageable);
   useEffect(() => { if (drop) setEditing(false); });
@@ -192,14 +194,15 @@ export function MaterialPage() {
   if (m && editing && manageable) return <section className={`${s.page} ${u.page}`}><QueryState loading={false} error={query.error} keepDataOnError retry={() => { void query.refetch(); }}><UnsavedChangesScope><Suspense fallback={loading}><MaterialEditor key={m.material_id} material={m} onClose={() => setEditing(false)} /></Suspense></UnsavedChangesScope></QueryState></section>;
   return <section className={`${s.page} ${u.page}`}>
     {/* The header and the way back stay when the material cannot be read (GL-28). */}
-    <BrandedHeader className={u.header}><div><SectionHomeLink to="/materials" label="Материалы" /><div className={u.titleRow}><h1 className={s.title}>{m?.title ?? (missing ? "Материал недоступен" : "Материал")}</h1>{manageable && <button type="button" className={u.pencil} aria-label="Редактировать материал" title="Редактировать материал" onClick={() => setEditing(true)}><Glyph name="edit" /></button>}</div>{m?.description && <p className={s.description}>{m.description}</p>}{manageable && m && <p className={s.description}>{m.published_content ? m.published_at ? `Опубликовано ${displayDate(m.published_at)}` : "Опубликовано" : "Не опубликовано"}{m.draft_content ? " · есть неопубликованный черновик" : ""}</p>}</div></BrandedHeader>
+    {journal ? <div className={u.header}><div className={u.titleRow}><SectionHomeLink to="/materials" label="Материалы" />{manageable && <button type="button" className={u.pencil} aria-label="Редактировать материал" title="Редактировать материал" onClick={() => setEditing(true)}><Glyph name="edit" /></button>}</div>{manageable && m && <p className={s.description}>{m.published_at ? `Опубликовано ${displayDate(m.published_at)}` : "Опубликовано"}{m.draft_content ? " · есть неопубликованный черновик" : ""}</p>}</div>
+      : <BrandedHeader className={u.header}><div><SectionHomeLink to="/materials" label="Материалы" /><div className={u.titleRow}><h1 className={s.title}>{m?.title ?? (missing ? "Материал недоступен" : "Материал")}</h1>{manageable && <button type="button" className={u.pencil} aria-label="Редактировать материал" title="Редактировать материал" onClick={() => setEditing(true)}><Glyph name="edit" /></button>}</div>{m?.description && <p className={s.description}>{m.description}</p>}{manageable && m && <p className={s.description}>{m.published_content ? m.published_at ? `Опубликовано ${displayDate(m.published_at)}` : "Опубликовано" : "Не опубликовано"}{m.draft_content ? " · есть неопубликованный черновик" : ""}</p>}</div></BrandedHeader>}
     {missing ? <div role="alert"><Empty>Материал не найден или доступ к нему закрыт.</Empty></div> : <QueryState loading={query.isLoading} error={query.error} keepDataOnError={!!m} retry={() => { void query.refetch(); }}>
       {m && <>
-        <Card className={u.reading}>
+        <Reading className={u.reading}>
           {m.placeholder && m.community_url && <a className={s.linkButton} href={m.community_url} target="_blank" rel="noopener noreferrer">Сообщество блока</a>}
-          {m.published_content ? <Suspense fallback={loading}><MaterialContent content={m.published_content} materialId={m.material_id} /></Suspense> : <Empty>Материал ещё готовится. Опубликованный текст появится здесь.</Empty>}
+          {m.published_content ? <Suspense fallback={loading}><MaterialContent content={m.published_content} materialId={m.material_id} title={m.title} description={m.description} /></Suspense> : <Empty>Материал ещё готовится. Опубликованный текст появится здесь.</Empty>}
           {m.original_link && <a className={s.linkButton} href={m.original_link} target="_blank" rel="noopener noreferrer">Открыть оригинал</a>}
-        </Card>
+        </Reading>
         {m.audience && <div className={u.audience}><MaterialAudience material={m} /></div>}
       </>}
     </QueryState>}

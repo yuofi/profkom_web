@@ -2,6 +2,7 @@
 
 from typing import Literal
 from pydantic import BaseModel, Field
+from journal_contract import JournalDocument
 
 
 class RichText(BaseModel):
@@ -60,10 +61,28 @@ class GuideRender(BaseModel):
     file_ids: tuple[str, ...]
 
 
+class JournalLegacy(BaseModel):
+    model_config = {"extra": "forbid", "frozen": True}
+    block_id: str
+    render: GuideRender
+
+
+class JournalRender(BaseModel):
+    model_config = {"extra": "forbid", "frozen": True}
+    schema_version: Literal[2]
+    policy_version: Literal[1]
+    source_hash: str
+    document: JournalDocument | None
+    legacy: tuple[JournalLegacy, ...]
+    diagnostics: tuple[GuideDiagnostic, ...]
+    file_ids: tuple[str, ...]
+    image_file_ids: tuple[str, ...]
+
+
 class MaterialContent(BaseModel):
-    format: Literal["markdown", "markdown-embeds-v1"] = "markdown"
+    format: Literal["markdown", "markdown-embeds-v1", "journal-v1"] = "markdown"
     body: str
-    render: GuideRender | None = None
+    render: GuideRender | JournalRender | None = None
 
 
 class UserReference(BaseModel):

@@ -18,7 +18,7 @@ import material_render
 
 
 class RichText(Command):
-    format: Literal["markdown", "markdown-embeds-v1"] = "markdown"
+    format: Literal["markdown", "markdown-embeds-v1", "journal-v1"] = "markdown"
     body: str
 
 
@@ -101,8 +101,12 @@ def can_read(id, uid):
         return bool(meta) and access.allowed(uid, "material.read_block_guide", "block", meta.legacy_name)
 
 
-def stored(s, body, material_id, published):
+def stored(s, body, material_id, published, format="markdown"):
     """Text to store: no new links into the bucket, own attachments as file:<id> (0.2)."""
+    # Journal's JSON source is never rewritten as legacy Markdown. Its compiler
+    # checks every visible/hidden file reference and refuses external images.
+    if format == material_render.JOURNAL:
+        return body
     from legacy_files import bucket_keys, own_attachments, stored_text
 
     return stored_text(body, own_attachments(s, material_id), bucket_keys(published))
@@ -116,13 +120,13 @@ def dto(s, m, uid, *, detail=True):
     from material_updates import placeholder_text
     published_body = placeholder_text(s, m.owner_block_id) if m.placeholder and m.revision == 1 and not m.has_draft and m.owner_block_id else m.published_body
     rendered = (material_render.artifacts(s, m.material_id) if detail and (
-        m.published_format == material_render.EXTENDED or (draft and m.draft_format == material_render.EXTENDED)
+        m.published_format in material_render.FORMATS or (draft and m.draft_format in material_render.FORMATS)
     ) else {})
     def content(body, format, slot):
-        if format == material_render.EXTENDED:
+        if format in material_render.FORMATS:
             result = dict(format=format, body=(body or "") if detail else "")
             if detail:
-                result["render"] = material_render.load_model(rendered.get(slot), body)
+                result["render"] = material_render.load_model(rendered.get(slot), body, format)
             return result
         return dict(format="markdown", body=read_text(body) if slot == "published" else (body or ""))
     data = dict(
@@ -176,21 +180,23 @@ def dto(s, m, uid, *, detail=True):
 
 
 def require_format(kind, content):
-    if content.format == material_render.EXTENDED:
+    if content.format in material_render.FORMATS:
         try:
             content.body.encode("utf-8")
         except UnicodeEncodeError:
             fail(422, "Текст содержит недопустимый символ Unicode", "guide_invalid_unicode")
         if kind != "guide":
-            fail(422, "HTML-вставки доступны в гайдах блоков", "guide_format_kind")
+            fail(422, "Расширенное оформление доступно в гайдах блоков", "guide_format_kind")
         if not settings.GUIDE_HTML_EMBEDS_ENABLED:
-            fail(409, "Редактирование HTML-вставок пока выключено", "guide_embeds_disabled")
+            fail(409, "Редактирование расширенного оформления пока выключено", "guide_embeds_disabled")
 
 
 def compile_source(content):
     if content.format == "markdown":
         return None
     from guide_embeds import compile_bounded, EmbedCompileBusy, EmbedCompileTimeout
+    if content.format == material_render.JOURNAL:
+        from journal import compile_bounded
     try:
         return compile_bounded(content.body)
     except EmbedCompileBusy:
@@ -211,7 +217,7 @@ def prepare_content(material_id, payload, cur):
                 return None, None
             require_format(m.kind, payload.content)
             content = payload.content.model_copy(update={
-                "body": stored(s, payload.content.body, material_id, m.published_body)
+                "body": stored(s, payload.content.body, material_id, m.published_body, payload.content.format)
             })
     return content, compile_source(content)
 
@@ -313,13 +319,13 @@ def publish(s, m, uid):
         import re
         from file_access import check_attachments
 
-        m.draft_body = stored(s, m.draft_body, m.material_id, m.published_body)
+        m.draft_body = stored(s, m.draft_body, m.material_id, m.published_body, m.draft_format)
         rendered = None
-        if m.draft_format == material_render.EXTENDED:
+        if m.draft_format in material_render.FORMATS:
             require_format(m.kind, RichText(format=m.draft_format, body=m.draft_body or ""))
-            rendered = material_render.load(material_render.artifacts(s, m.material_id).get("draft"), m.draft_body)
+            rendered = material_render.load(material_render.artifacts(s, m.material_id).get("draft"), m.draft_body, m.draft_format)
             if not rendered or rendered["diagnostics"]:
-                fail(422, "Исправьте ошибки HTML-вставок и сохраните черновик перед публикацией", "guide_embeds_invalid")
+                fail(422, "Исправьте ошибки оформления и сохраните черновик перед публикацией", "guide_embeds_invalid")
             ids = rendered["file_ids"]
             material_render.check_images(s, rendered)
         else:
@@ -332,7 +338,7 @@ def publish(s, m, uid):
         m.original_link = m.draft_original_link
         m.published_body = m.draft_body or ""
         m.published_format = m.draft_format
-        material_render.save(s, m.material_id, "published", m.published_body, rendered)
+        material_render.save(s, m.material_id, "published", m.published_body, rendered, m.published_format)
         material_render.save(s, m.material_id, "draft", "", None)
         from domain_seed import now as published_now
         m.published_at = published_now()
@@ -488,7 +494,7 @@ def register_routes(router):
             if not can_read(material_id, cur.user_id):
                 fail(404, "Material not found")
             data = dto(s, m, cur.user_id)
-            if m.published_format == material_render.EXTENDED or m.draft_format == material_render.EXTENDED:
+            if m.published_format in material_render.FORMATS or m.draft_format in material_render.FORMATS:
                 return material_render.detail_response(data)
             return data
 
@@ -505,7 +511,7 @@ def register_routes(router):
         with db.atomic(write=False), db._session() as s:
             recheck_current_user(cur, working=True)
             require_create(s, payload, cur)
-            body = stored(s, payload.content.body, None, None)
+            body = stored(s, payload.content.body, None, None, payload.content.format)
         content = payload.content.model_copy(update={"body": body})
         rendered = compile_source(content)
         with db.atomic(), db._session() as s:
@@ -515,7 +521,8 @@ def register_routes(router):
                 ("https://", "http://")
             ):
                 fail(422, "Invalid original link")
-            if re.search(r"file:file-[\w-]+", body):
+            if ((rendered and rendered["file_ids"]) or
+                    (content.format != material_render.JOURNAL and re.search(r"file:file-[\w-]+", body))):
                 # A new object owns no files yet; upload after saving its draft.
                 fail(422, "A new material cannot reference files; attach them after creating its draft")
             m = MaterialORM(
@@ -537,7 +544,7 @@ def register_routes(router):
             )
             s.add(m)
             s.flush()
-            material_render.save(s, m.material_id, "draft", body, rendered)
+            material_render.save(s, m.material_id, "draft", body, rendered, content.format)
             audit(
                 s,
                 "material",
@@ -568,9 +575,9 @@ def register_routes(router):
                 m.draft_original_link = m.original_link
                 m.draft_body = m.published_body or ""
                 m.draft_format = m.published_format
-                if m.published_format == material_render.EXTENDED and content is None:
-                    old_render = material_render.load(material_render.artifacts(s, material_id).get("published"), m.published_body)
-                    material_render.save(s, material_id, "draft", m.draft_body, old_render)
+                if m.published_format in material_render.FORMATS and content is None:
+                    old_render = material_render.load(material_render.artifacts(s, material_id).get("published"), m.published_body, m.published_format)
+                    material_render.save(s, material_id, "draft", m.draft_body, old_render, m.draft_format)
                 m.has_draft = True
             if payload.title is not None:
                 if not payload.title.strip():
@@ -588,7 +595,7 @@ def register_routes(router):
                 require_format(m.kind, content)
                 check_render_files(s, material_id, cur.user_id, rendered)
                 m.draft_body, m.draft_format = content.body, content.format
-                material_render.save(s, material_id, "draft", m.draft_body, rendered)
+                material_render.save(s, material_id, "draft", m.draft_body, rendered, m.draft_format)
             m.revision += 1
             audit(
                 s,

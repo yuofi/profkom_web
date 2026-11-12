@@ -205,6 +205,14 @@ ALLOWED = {
     # covers download/validation failures at the real HTTP login boundary.
     ("vk_avatar.py", "download"),
     ("vk_avatar.py", "validate_image"),
+    # Pure Journal parsing errors are caught inside compile_content and become
+    # editable-draft diagnostics, never an HTTP/domain status. _nonblank is a
+    # functional Pydantic AfterValidator rather than a decorated validator.
+    # test_journal_compiler and the real-process invalid-draft HTTP regressions
+    # cover these boundaries; ordinary domain functions remain prohibited.
+    ("journal.py", "_unique_object"),
+    ("journal.py", "compile_content"),
+    ("journal_contract.py", "_nonblank"),
 }
 VALIDATORS = {"field_validator", "model_validator", "validator"}
 

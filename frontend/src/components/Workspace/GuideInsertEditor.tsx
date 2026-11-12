@@ -163,7 +163,7 @@ function GuideLinkFields({ material, source, href, onChange }: { material: Mater
   useEffect(() => {
     if (destination !== "section") return;
     let current = true;
-    void guideHeadingChoices(source, savedRender).then(result => { if (current) setHeadings(result); }, () => { if (current) setHeadingFailure(true); });
+    void guideHeadingChoices(source, savedRender?.schema_version === 1 ? savedRender : undefined).then(result => { if (current) setHeadings(result); }, () => { if (current) setHeadingFailure(true); });
     return () => { current = false; };
   }, [destination, source, savedRender]);
   return <>

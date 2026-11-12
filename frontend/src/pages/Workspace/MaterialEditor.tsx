@@ -8,6 +8,7 @@ import { ActionForm } from "../../components/Workspace/ActionForm";
 import { MarkdownContent } from "../../components/Workspace/MarkdownContent";
 import { MarkdownEditor } from "../../components/Workspace/MarkdownEditor";
 import { MaterialContent } from "../../components/Workspace/MaterialContent";
+import { importJournal, journalSource } from "../../components/Workspace/journalEditorModel";
 import { EntityPicker } from "../../components/Workspace/EntityPicker";
 import { MaterialAudience } from "../../components/Workspace/MaterialAudience";
 import { Empty, QueryState } from "../../components/Workspace/WorkspaceUI";
@@ -26,6 +27,7 @@ import s from "./MaterialWorkspace.module.css";
 
 const kinds: Record<string, string> = { kmb: "КМБ", guide: "Гайд блока", general: "Общий документ" };
 const GuideInsertEditor = lazy(() => import("../../components/Workspace/GuideInsertEditor").then(module => ({ default: module.GuideInsertEditor })));
+const JournalEditor = lazy(() => import("../../components/Workspace/JournalEditor").then(module => ({ default: module.JournalEditor })));
 /** A title wraps to as many lines as it needs (GL-44). */
 const grow = (element: HTMLTextAreaElement | null) => { if (element) { element.style.height = "auto";element.style.height = `${element.scrollHeight}px`; } };
 
@@ -41,6 +43,10 @@ export function MaterialEditor({ material: m, onClose }: { material?: Material; 
   const [body, setBody] = useState(m?.source_content?.body ?? ""), [kind, setKind] = useState(m?.kind ?? ""), [block, setBlock] = useState("");
   const [format, setFormat] = useState<MaterialText["format"]>(m?.source_content?.format ?? "markdown");
   const [saving, setSaving] = useState(false), [uploading, setUploading] = useState(false);
+  const [converting, setConverting] = useState(false), [conversionConfirmed, setConversionConfirmed] = useState(false);
+  // The exact old source is kept until the conversion is saved. Never flatten a
+  // persisted journal into Markdown and silently discard its structured fields.
+  const [conversionOriginal, setConversionOriginal] = useState<{ body: string; format: "markdown" | "markdown-embeds-v1" } | null>(null);
   // Every refused field at once, each cleared by its own edit (GL-17).
   const [problems, setProblems] = useState<Partial<Record<"title" | "description" | "original" | "kind" | "block", string>>>({});
   const edited = (name: keyof typeof problems) => setProblems(current => { if (!current[name]) return current;const next = { ...current };delete next[name];return next; });
@@ -49,10 +55,10 @@ export function MaterialEditor({ material: m, onClose }: { material?: Material; 
   const external = { title, description, original, body, format, kind, block };
   const [initial] = useState(external);
   const saved = m ? { title: m.title, description: m.description, original: m.original_link ?? "", body: m.source_content?.body ?? "", format: m.source_content?.format ?? "markdown", kind: m.kind, block: "" } : initial;
-  const replace = () => { setTitle(saved.title);setDescription(saved.description);setOriginal(saved.original);setBody(saved.body);setFormat(saved.format);setKind(saved.kind);setBlock(saved.block); };
+  const replace = () => { setTitle(saved.title);setDescription(saved.description);setOriginal(saved.original);setBody(saved.body);setFormat(saved.format);setKind(saved.kind);setBlock(saved.block);setConverting(false);setConversionOriginal(null); };
   const editable = !m || can(m, "edit_material");
   const close = () => { if (onClose) leave(onClose);else navigate("/materials"); };
-  const stateDetails = <><dl><dt>Название</dt><dd>{saved.title}</dd><dt>Описание</dt><dd>{saved.description || "—"}</dd><dt>Ссылка на оригинал</dt><dd>{saved.original || "—"}</dd></dl><MarkdownContent body={saved.body} /></>;
+  const stateDetails = <><dl><dt>Название</dt><dd>{saved.title}</dd><dt>Описание</dt><dd>{saved.description || "—"}</dd><dt>Ссылка на оригинал</dt><dd>{saved.original || "—"}</dd></dl>{saved.format === "journal-v1" && m?.draft_content ? <MaterialContent content={m.draft_content} materialId={`${m.material_id}-conflict`} title={saved.title} /> : <MarkdownContent body={saved.body} />}</>;
   return <>
     <BrandedHeader className={s.header}><div><SectionHomeLink to="/materials" label="Материалы" /><nav aria-label="Путь редактора материала"><Link to="/materials">Материалы</Link><span>›</span><span>{m ? "Редактирование материала" : "Новый материал"}</span></nav><div className={s.titleRow}><h1 className={w.title}>{m ? "Редактировать материал" : "Новый материал"}</h1><button type="button" className={w.button} disabled={saving} onClick={close}>{m ? "Готово" : "Отмена"}</button></div><p className={w.description}>{m ? "Сохраните изменения в черновик. Публикация обновит материал для читателей." : "Заполните материал и сохраните черновик. Опубликовать его можно отдельным действием."}</p></div></BrandedHeader>
     <div className={s.workspace}>
@@ -73,11 +79,16 @@ export function MaterialEditor({ material: m, onClose }: { material?: Material; 
             // A new draft opens in its editor, with publication at hand (GL-17); it replaces the
             // blank /materials/new entry, so Back leads to where creation started.
             if (!m) navigate(`${getMaterialRoute(result.material_id)}?edit=1`, { replace: true });
+            setConversionOriginal(null);
             return result;
           } finally { setSaving(false); }
         }}>
           <label className={`${w.field} ${s.title}`}>Название материала<textarea name="title" rows={1} value={title} ref={grow} onChange={event => { setTitle(event.target.value.replace(/\s*\n\s*/g, " "));edited("title");grow(event.currentTarget); }} onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }} placeholder="Название материала" required disabled={saving} autoFocus {...invalid("title")} />{problem("title")}</label>
-          {m?.kind === "guide" && (can(m, "edit_html_material") || format === "markdown-embeds-v1") ? <Suspense fallback={<p role="status">Загружаем редактор гайда…</p>}><GuideInsertEditor material={m} value={body} format={format} onChange={setBody} onFormatChange={setFormat} disabled={saving || uploading} onBusyChange={setUploading} /></Suspense> : <MarkdownEditor name="body" label="Текст материала" value={body} onChange={setBody} rows={20} disabled={saving} context="material" />}
+          {m?.kind === "guide" && can(m, "edit_html_material") && <div className={w.field}><strong>Оформление: {format === "journal-v1" ? "Журнал" : "Обычный гайд"}</strong>{format !== "journal-v1" ? <>
+            <button type="button" className={w.button} disabled={saving || uploading} onClick={() => { setConverting(!converting);setConversionConfirmed(false); }}>Перейти к Журналу</button>
+            {converting && <div><p>Журнал состоит из обложки, разделов и редактируемых блоков. {format === "markdown-embeds-v1" ? "Все прежние HTML-вставки и Markdown перенесутся одним блоком без изменения исходника." : "Заголовки второго уровня станут разделами, остальной Markdown сохранится в текстовых блоках."}</p><p>Изменится только черновик. После сохранения автоматический перевод обратно в обычный гайд недоступен; исходник журнала остаётся доступен в редакторе.</p><label><input type="checkbox" checked={conversionConfirmed} disabled={saving || uploading} onChange={event => setConversionConfirmed(event.target.checked)} /> Преобразовать сохранённый текст в Журнал</label><button type="button" className={w.button} disabled={!conversionConfirmed || saving || uploading} onClick={() => { setConversionOriginal({ body, format });setBody(journalSource(importJournal(body, format)));setFormat("journal-v1");setConverting(false); }}>Преобразовать в Журнал</button></div>}
+          </> : <p className={w.muted}>Разделы и блоки редактируются ниже. {conversionOriginal && <button type="button" className={w.linkButton} disabled={saving || uploading} onClick={() => { setBody(conversionOriginal.body);setFormat(conversionOriginal.format);setConversionOriginal(null); }}>Вернуть текст до преобразования</button>}</p>}</div>}
+          {m && format === "journal-v1" ? <Suspense fallback={<p role="status">Загружаем редактор журнала…</p>}><JournalEditor material={m} title={title} value={body} onChange={setBody} disabled={saving || uploading} onBusyChange={setUploading} /></Suspense> : m?.kind === "guide" && (can(m, "edit_html_material") || format === "markdown-embeds-v1") ? <Suspense fallback={<p role="status">Загружаем редактор гайда…</p>}><GuideInsertEditor material={m} value={body} format={format} onChange={setBody} onFormatChange={setFormat} disabled={saving || uploading} onBusyChange={setUploading} /></Suspense> : <MarkdownEditor name="body" label="Текст материала" value={body} onChange={setBody} rows={20} disabled={saving} context="material" />}
           {!m && kind === "guide" && <p className={w.muted}>Сначала сохраните черновик. Затем можно добавить оформленные плашки, кнопки, таблицы и загрузить изображения.</p>}
           {/* Before the save button on every width, not after the form in the side column (GL-43). */}
           <label className={w.field}>Краткое описание<textarea name="description" rows={3} value={description} onChange={event => { setDescription(event.target.value);edited("description"); }} disabled={saving} required={!m} {...invalid("description")} />{problem("description")}</label>
@@ -99,9 +110,9 @@ export function MaterialEditor({ material: m, onClose }: { material?: Material; 
 function MaterialManagement({ material: m, onDeleteBusy, busy }: { material: Material; onDeleteBusy: (busy: boolean) => void; busy: boolean }) {
   const { session } = useSession(), { perform, refresh } = useWorkspaceActions();
   const draftDiagnostics = m.draft_content?.render?.diagnostics ?? [];
-  const draftInvalid = m.draft_content?.format === "markdown-embeds-v1" && (!m.draft_content.render || draftDiagnostics.length > 0);
+  const draftInvalid = !!m.draft_content && m.draft_content.format !== "markdown" && (!m.draft_content.render || draftDiagnostics.length > 0 || ("document" in m.draft_content.render && !m.draft_content.render.document));
   return <>
-    {can(m, "publish_material") && <section className={s.management}><h3>Публикация</h3><p className={w.muted}>{m.published_content ? m.published_at ? `Опубликовано ${displayDate(m.published_at)}.` : "Опубликовано." : "Ещё не опубликовано."}</p><p className={w.muted}>{m.draft_content ? "Есть сохранённый черновик. Публикация применит именно его, без несохранённых правок." : "Сначала сохраните черновик материала."}</p>{draftInvalid && <div role="alert"><p>Исправьте оформление и сохраните черновик перед публикацией.</p><ul>{draftDiagnostics.map((problem, index) => <li key={index}>Строка {problem.line}: {problem.message}</li>)}</ul></div>}{m.draft_content?.format === "markdown-embeds-v1" && <PublicationComparison material={m} />}<ActionForm revision={m.revision} record={`material:${m.material_id}`} fields={[]} disabled={!m.draft_content || draftInvalid || busy} savedDetails={m.draft_content ? <MaterialContent content={m.draft_content} materialId={`${m.material_id}-saved`} showToc={false} /> : undefined} allowExitSave={false} submitLabel="Опубликовать сохранённый черновик" onConflict={refresh} onSubmit={async (_values, revision) => perform(() => materialsApi.publish(m.material_id, { expected_revision: revision! }))} /></section>}
+    {can(m, "publish_material") && <section className={s.management}><h3>Публикация</h3><p className={w.muted}>{m.published_content ? m.published_at ? `Опубликовано ${displayDate(m.published_at)}.` : "Опубликовано." : "Ещё не опубликовано."}</p><p className={w.muted}>{m.draft_content ? "Есть сохранённый черновик. Публикация применит именно его, без несохранённых правок." : "Сначала сохраните черновик материала."}</p>{draftInvalid && <div role="alert"><p>Исправьте оформление и сохраните черновик перед публикацией.</p><ul>{draftDiagnostics.map((problem, index) => <li key={index}>Строка {problem.line}: {problem.message}</li>)}</ul></div>}{m.draft_content && m.draft_content.format !== "markdown" && <PublicationComparison material={m} />}<ActionForm revision={m.revision} record={`material:${m.material_id}`} fields={[]} disabled={!m.draft_content || draftInvalid || busy} savedDetails={m.draft_content ? <MaterialContent content={m.draft_content} materialId={`${m.material_id}-saved`} title={m.title} showToc={false} /> : undefined} allowExitSave={false} submitLabel="Опубликовать сохранённый черновик" onConflict={refresh} onSubmit={async (_values, revision) => perform(() => materialsApi.publish(m.material_id, { expected_revision: revision! }))} /></section>}
     {m.audience && <section className={s.management}><h3>Кто видит гайд</h3><MaterialAudience material={m} /></section>}
     {m.owner_block_id === null && can(session, "manage_material_editors") && <MaterialEditors material={m} />}
     {can(m, "delete_material") && <MaterialDeletion material={m} onBusy={onDeleteBusy} />}
@@ -115,7 +126,7 @@ function MaterialEditors({ material: m }: { material: Material }) {
 /** Closed comparisons never mount extra readers or start image requests. */
 function PublicationComparison({ material: m }: { material: Material }) {
   const [open, setOpen] = useState(false);
-  return <details onToggle={event => setOpen(event.currentTarget.open)}><summary>Сравнить с публикацией</summary>{open && <><h4>Сейчас видят читатели</h4>{m.published_content ? <MaterialContent content={m.published_content} materialId={`${m.material_id}-published-comparison`} showToc={false} /> : <p>Ещё не опубликовано.</p>}<h4>Сохранённый черновик</h4>{m.draft_content && <MaterialContent content={m.draft_content} materialId={`${m.material_id}-draft-comparison`} showToc={false} />}</>}</details>;
+  return <details onToggle={event => setOpen(event.currentTarget.open)}><summary>Сравнить с публикацией</summary>{open && <><h4>Сейчас видят читатели</h4>{m.published_content ? <MaterialContent content={m.published_content} materialId={`${m.material_id}-published-comparison`} title={m.title} showToc={false} /> : <p>Ещё не опубликовано.</p>}<h4>Сохранённый черновик</h4>{m.draft_content && <MaterialContent content={m.draft_content} materialId={`${m.material_id}-draft-comparison`} title={m.title} showToc={false} />}</>}</details>;
 }
 
 function MaterialDeletion({ material: m, onBusy }: { material: Material; onBusy: (busy: boolean) => void }) {

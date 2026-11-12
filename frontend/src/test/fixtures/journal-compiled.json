@@ -1,0 +1,622 @@
+[
+  {
+    "name": "all-block-types",
+    "valid": true,
+    "content": {
+      "format": "journal-v1",
+      "body": "{\"version\":1,\"eyebrow\":\"Практика\",\"intro\":\"Как пользоваться сайтом\",\"cover\":{\"kind\":\"poster\",\"eyebrow\":\"Старт\",\"title\":\"Всё по делу\",\"caption\":\"Пять минут\",\"tone\":\"mint\"},\"sections\":[{\"id\":\"start\",\"label\":\"01\",\"title\":\"Начало\",\"blocks\":[{\"id\":\"text\",\"type\":\"text\",\"body\":\"[Дальше](#next) и [сайт](https://example.com/)\"},{\"id\":\"note\",\"type\":\"note\",\"tone\":\"info\",\"title\":\"Важно\",\"body\":\"Сначала прочитайте\"},{\"id\":\"compare\",\"type\":\"comparison\",\"before_label\":\"Было\",\"before\":\"Так\",\"after_label\":\"Стало\",\"after\":\"Иначе\"},{\"id\":\"facts\",\"type\":\"facts\",\"items\":[{\"label\":\"Один\",\"body\":\"Да\"},{\"label\":\"Два\",\"body\":\"Нет\"}]},{\"id\":\"steps\",\"type\":\"steps\",\"items\":[{\"role\":\"Автор\",\"title\":\"Создать\",\"body\":\"Текст\"},{\"role\":\"Редактор\",\"title\":\"Проверить\",\"body\":\"Готово\"}]},{\"id\":\"image\",\"type\":\"image\",\"file_id\":\"file-picture\",\"alt\":\"Пример\",\"caption\":\"Подпись\",\"width\":800,\"height\":600,\"collapsed\":true},{\"id\":\"details\",\"type\":\"disclosure\",\"title\":\"Подробнее\",\"body\":\"![скрыто](file:file-hidden)\"},{\"id\":\"switch\",\"type\":\"switcher\",\"title\":\"Ваш случай\",\"options\":[{\"id\":\"a\",\"label\":\"Первый\",\"body\":\"Текст\"},{\"id\":\"b\",\"label\":\"Второй\",\"body\":\"[Файл](file:file-document)\\n\\n```gallery\\nfile:file-gallery|Галерея\\n```\"}]},{\"id\":\"old\",\"type\":\"legacy\",\"body\":\"## Старая глава\\n\\n```profkom-html id=old-card\\n<p class=\\\"guide-card\\\">Старый текст</p>\\n```\"}]},{\"id\":\"next\",\"label\":\"02\",\"title\":\"Дальше\",\"blocks\":[{\"id\":\"end\",\"type\":\"text\",\"body\":\"Конец\"}]}]}",
+      "render": {
+        "schema_version": 2,
+        "policy_version": 1,
+        "source_hash": "605f3949981054572a53e6c7c6f2fe6c26caca9427ab471c840de6c6d0aa5c34",
+        "document": {
+          "version": 1,
+          "eyebrow": "Практика",
+          "intro": "Как пользоваться сайтом",
+          "cover": {
+            "kind": "poster",
+            "eyebrow": "Старт",
+            "title": "Всё по делу",
+            "caption": "Пять минут",
+            "tone": "mint"
+          },
+          "sections": [
+            {
+              "id": "start",
+              "label": "01",
+              "title": "Начало",
+              "blocks": [
+                {
+                  "id": "text",
+                  "type": "text",
+                  "body": "[Дальше](#next) и [сайт](https://example.com/)"
+                },
+                {
+                  "id": "note",
+                  "type": "note",
+                  "tone": "info",
+                  "title": "Важно",
+                  "body": "Сначала прочитайте"
+                },
+                {
+                  "id": "compare",
+                  "type": "comparison",
+                  "before_label": "Было",
+                  "before": "Так",
+                  "after_label": "Стало",
+                  "after": "Иначе"
+                },
+                {
+                  "id": "facts",
+                  "type": "facts",
+                  "items": [
+                    {
+                      "label": "Один",
+                      "body": "Да"
+                    },
+                    {
+                      "label": "Два",
+                      "body": "Нет"
+                    }
+                  ]
+                },
+                {
+                  "id": "steps",
+                  "type": "steps",
+                  "items": [
+                    {
+                      "role": "Автор",
+                      "title": "Создать",
+                      "body": "Текст"
+                    },
+                    {
+                      "role": "Редактор",
+                      "title": "Проверить",
+                      "body": "Готово"
+                    }
+                  ]
+                },
+                {
+                  "file_id": "file-picture",
+                  "alt": "Пример",
+                  "caption": "Подпись",
+                  "width": 800,
+                  "height": 600,
+                  "id": "image",
+                  "type": "image",
+                  "collapsed": true
+                },
+                {
+                  "id": "details",
+                  "type": "disclosure",
+                  "title": "Подробнее",
+                  "body": "![скрыто](file:file-hidden)"
+                },
+                {
+                  "id": "switch",
+                  "type": "switcher",
+                  "title": "Ваш случай",
+                  "options": [
+                    {
+                      "id": "a",
+                      "label": "Первый",
+                      "body": "Текст"
+                    },
+                    {
+                      "id": "b",
+                      "label": "Второй",
+                      "body": "[Файл](file:file-document)\n\n```gallery\nfile:file-gallery|Галерея\n```"
+                    }
+                  ]
+                },
+                {
+                  "id": "old",
+                  "type": "legacy",
+                  "body": "## Старая глава\n\n```profkom-html id=old-card\n<p class=\"guide-card\">Старый текст</p>\n```"
+                }
+              ]
+            },
+            {
+              "id": "next",
+              "label": "02",
+              "title": "Дальше",
+              "blocks": [
+                {
+                  "id": "end",
+                  "type": "text",
+                  "body": "Конец"
+                }
+              ]
+            }
+          ]
+        },
+        "legacy": [
+          {
+            "block_id": "old",
+            "render": {
+              "schema_version": 1,
+              "policy_version": 1,
+              "source_hash": "1e7f825701d58bf268911153da5af9e966566aeea551d33d1a93c11a17051655",
+              "blocks": [
+                {
+                  "id": "old-card",
+                  "source": "<p class=\"guide-card\">Старый текст</p>\n",
+                  "nodes": [
+                    {
+                      "tag": "p",
+                      "text": "",
+                      "attrs": {
+                        "classes": [
+                          "guide-card"
+                        ]
+                      },
+                      "children": [
+                        {
+                          "tag": "text",
+                          "text": "Старый текст",
+                          "attrs": {},
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "text",
+                      "text": "\n",
+                      "attrs": {},
+                      "children": []
+                    }
+                  ],
+                  "text": "Старый текст"
+                }
+              ],
+              "diagnostics": [],
+              "file_ids": []
+            }
+          }
+        ],
+        "diagnostics": [],
+        "file_ids": [
+          "file-document",
+          "file-gallery",
+          "file-hidden",
+          "file-picture"
+        ],
+        "image_file_ids": [
+          "file-gallery",
+          "file-hidden",
+          "file-picture"
+        ]
+      }
+    }
+  },
+  {
+    "name": "ordinary-markdown",
+    "valid": true,
+    "content": {
+      "format": "journal-v1",
+      "body": "{\"version\":1,\"eyebrow\":\"\",\"intro\":\"\",\"cover\":null,\"sections\":[{\"id\":\"start\",\"label\":\"\",\"title\":\"Старт\",\"blocks\":[{\"id\":\"body\",\"type\":\"text\",\"body\":\"[Блоки](/blocks) и [раздел](#start)\"}]}]}",
+      "render": {
+        "schema_version": 2,
+        "policy_version": 1,
+        "source_hash": "c61d2acc026dff9104c488e3a18e16b6a2817ea16511eb775393033f184d9427",
+        "document": {
+          "version": 1,
+          "eyebrow": "",
+          "intro": "",
+          "cover": null,
+          "sections": [
+            {
+              "id": "start",
+              "label": "",
+              "title": "Старт",
+              "blocks": [
+                {
+                  "id": "body",
+                  "type": "text",
+                  "body": "[Блоки](/blocks) и [раздел](#start)"
+                }
+              ]
+            }
+          ]
+        },
+        "legacy": [],
+        "diagnostics": [],
+        "file_ids": [],
+        "image_file_ids": []
+      }
+    }
+  },
+  {
+    "name": "unicode-codepoint-boundaries",
+    "valid": true,
+    "content": {
+      "format": "journal-v1",
+      "body": "{\"version\":1,\"eyebrow\":\"\",\"intro\":\"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\",\"cover\":null,\"sections\":[{\"id\":\"start\",\"label\":\"\",\"title\":\"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\",\"blocks\":[{\"id\":\"body\",\"type\":\"text\",\"body\":\"Короткий текст\"}]}]}",
+      "render": {
+        "schema_version": 2,
+        "policy_version": 1,
+        "source_hash": "1ef9cba3cbbc17eee27f73450f1c2e43908750d9cba67556f531d292a94317ab",
+        "document": {
+          "version": 1,
+          "eyebrow": "",
+          "intro": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+          "cover": null,
+          "sections": [
+            {
+              "id": "start",
+              "label": "",
+              "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+              "blocks": [
+                {
+                  "id": "body",
+                  "type": "text",
+                  "body": "Короткий текст"
+                }
+              ]
+            }
+          ]
+        },
+        "legacy": [],
+        "diagnostics": [],
+        "file_ids": [],
+        "image_file_ids": []
+      }
+    }
+  },
+  {
+    "name": "implicit-gfm-autolinks-are-text",
+    "valid": true,
+    "content": {
+      "format": "journal-v1",
+      "body": "{\"version\":1,\"eyebrow\":\"\",\"intro\":\"\",\"cover\":null,\"sections\":[{\"id\":\"start\",\"label\":\"\",\"title\":\"Старт\",\"blocks\":[{\"id\":\"body\",\"type\":\"text\",\"body\":\"Контакты: www.example.org, chair@example.org, http://example.org и https://example.org.\"}]}]}",
+      "render": {
+        "schema_version": 2,
+        "policy_version": 1,
+        "source_hash": "b274af099337a791be720d04d9528be3e3ed5ef06b0d7fb1d7ee32955dffee81",
+        "document": {
+          "version": 1,
+          "eyebrow": "",
+          "intro": "",
+          "cover": null,
+          "sections": [
+            {
+              "id": "start",
+              "label": "",
+              "title": "Старт",
+              "blocks": [
+                {
+                  "id": "body",
+                  "type": "text",
+                  "body": "Контакты: www.example.org, chair@example.org, http://example.org и https://example.org."
+                }
+              ]
+            }
+          ]
+        },
+        "legacy": [],
+        "diagnostics": [],
+        "file_ids": [],
+        "image_file_ids": []
+      }
+    }
+  },
+  {
+    "name": "chip-fence-is-inert-code",
+    "valid": true,
+    "content": {
+      "format": "journal-v1",
+      "body": "{\"version\":1,\"eyebrow\":\"\",\"intro\":\"\",\"cover\":null,\"sections\":[{\"id\":\"start\",\"label\":\"\",\"title\":\"Старт\",\"blocks\":[{\"id\":\"body\",\"type\":\"text\",\"body\":\"```chip\\nФамилия: Пример\\nФото: https://example.org/never-request.png\\n```\"}]}]}",
+      "render": {
+        "schema_version": 2,
+        "policy_version": 1,
+        "source_hash": "ed28de377668c1f937ecb5c6aa16af12c37a5e6a236dbeda5898fe4706775df5",
+        "document": {
+          "version": 1,
+          "eyebrow": "",
+          "intro": "",
+          "cover": null,
+          "sections": [
+            {
+              "id": "start",
+              "label": "",
+              "title": "Старт",
+              "blocks": [
+                {
+                  "id": "body",
+                  "type": "text",
+                  "body": "```chip\nФамилия: Пример\nФото: https://example.org/never-request.png\n```"
+                }
+              ]
+            }
+          ]
+        },
+        "legacy": [],
+        "diagnostics": [],
+        "file_ids": [],
+        "image_file_ids": []
+      }
+    }
+  },
+  {
+    "name": "legacy-import-with-inert-chip",
+    "valid": true,
+    "content": {
+      "format": "journal-v1",
+      "body": "{\"version\":1,\"eyebrow\":\"\",\"intro\":\"\",\"cover\":null,\"sections\":[{\"id\":\"start\",\"label\":\"\",\"title\":\"Старт\",\"blocks\":[{\"id\":\"legacy\",\"type\":\"legacy\",\"body\":\"## Старый раздел\\n\\nТекст www.example.org и chair@example.org\\n\\n```chip\\nФото: https://example.org/never-request.png\\n```\\n\\n```profkom-html id=old-card\\n<section class=\\\"guide-card\\\"><h3>Пример</h3><details><summary>Фото</summary><img src=\\\"file:file-legacy-photo\\\" alt=\\\"Снимок\\\" width=\\\"400\\\" height=\\\"300\\\"></details></section>\\n```\"}]}]}",
+      "render": {
+        "schema_version": 2,
+        "policy_version": 1,
+        "source_hash": "82c64c25ab39049ef68561ea8519926507add1ec0de052ac291e891047ee9247",
+        "document": {
+          "version": 1,
+          "eyebrow": "",
+          "intro": "",
+          "cover": null,
+          "sections": [
+            {
+              "id": "start",
+              "label": "",
+              "title": "Старт",
+              "blocks": [
+                {
+                  "id": "legacy",
+                  "type": "legacy",
+                  "body": "## Старый раздел\n\nТекст www.example.org и chair@example.org\n\n```chip\nФото: https://example.org/never-request.png\n```\n\n```profkom-html id=old-card\n<section class=\"guide-card\"><h3>Пример</h3><details><summary>Фото</summary><img src=\"file:file-legacy-photo\" alt=\"Снимок\" width=\"400\" height=\"300\"></details></section>\n```"
+                }
+              ]
+            }
+          ]
+        },
+        "legacy": [
+          {
+            "block_id": "legacy",
+            "render": {
+              "schema_version": 1,
+              "policy_version": 1,
+              "source_hash": "f74b7eaff96b845d870edc8efdfeae6f0f56dc38c9baf7f3e9b8a16445e9109a",
+              "blocks": [
+                {
+                  "id": "old-card",
+                  "source": "<section class=\"guide-card\"><h3>Пример</h3><details><summary>Фото</summary><img src=\"file:file-legacy-photo\" alt=\"Снимок\" width=\"400\" height=\"300\"></details></section>\n",
+                  "nodes": [
+                    {
+                      "tag": "section",
+                      "text": "",
+                      "attrs": {
+                        "classes": [
+                          "guide-card"
+                        ]
+                      },
+                      "children": [
+                        {
+                          "tag": "h3",
+                          "text": "",
+                          "attrs": {
+                            "anchor": "old-card-heading-1"
+                          },
+                          "children": [
+                            {
+                              "tag": "text",
+                              "text": "Пример",
+                              "attrs": {},
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "tag": "details",
+                          "text": "",
+                          "attrs": {},
+                          "children": [
+                            {
+                              "tag": "summary",
+                              "text": "",
+                              "attrs": {},
+                              "children": [
+                                {
+                                  "tag": "text",
+                                  "text": "Фото",
+                                  "attrs": {},
+                                  "children": []
+                                }
+                              ]
+                            },
+                            {
+                              "tag": "img",
+                              "text": "",
+                              "attrs": {
+                                "src": "file:file-legacy-photo",
+                                "alt": "Снимок",
+                                "width": 400,
+                                "height": 300
+                              },
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "tag": "text",
+                      "text": "\n",
+                      "attrs": {},
+                      "children": []
+                    }
+                  ],
+                  "text": "Пример Фото Снимок"
+                }
+              ],
+              "diagnostics": [],
+              "file_ids": [
+                "file-legacy-photo"
+              ]
+            }
+          }
+        ],
+        "diagnostics": [],
+        "file_ids": [
+          "file-legacy-photo"
+        ],
+        "image_file_ids": [
+          "file-legacy-photo"
+        ]
+      }
+    }
+  },
+  {
+    "name": "blank-section-title-invalid",
+    "valid": false,
+    "content": {
+      "format": "journal-v1",
+      "body": "{\"version\":1,\"eyebrow\":\"\",\"intro\":\"\",\"cover\":null,\"sections\":[{\"id\":\"start\",\"label\":\"\",\"title\":\" \\t\\n\",\"blocks\":[{\"id\":\"body\",\"type\":\"text\",\"body\":\"Короткий текст\"}]}]}",
+      "render": {
+        "schema_version": 2,
+        "policy_version": 1,
+        "source_hash": "3297d678776210b7e4d0a946315db5b32e2c1c81bb5ff8a44ec7f7807f973b89",
+        "document": null,
+        "legacy": [],
+        "diagnostics": [
+          {
+            "block_id": "start",
+            "line": 1,
+            "code": "journal_schema",
+            "message": "Проверьте поле «sections.0.title»: его значение не соответствует формату журнала."
+          },
+          {
+            "block_id": null,
+            "line": 1,
+            "code": "journal_schema",
+            "message": "Проверьте поле «sections»: его значение не соответствует формату журнала."
+          }
+        ],
+        "file_ids": [],
+        "image_file_ids": []
+      }
+    }
+  },
+  {
+    "name": "blank-image-alt-invalid",
+    "valid": false,
+    "content": {
+      "format": "journal-v1",
+      "body": "{\"version\":1,\"eyebrow\":\"\",\"intro\":\"\",\"cover\":{\"kind\":\"image\",\"file_id\":\"file-cover\",\"alt\":\"\",\"caption\":\"\",\"width\":400,\"height\":300},\"sections\":[{\"id\":\"start\",\"label\":\"\",\"title\":\"Старт\",\"blocks\":[{\"id\":\"body\",\"type\":\"text\",\"body\":\"Короткий текст\"}]}]}",
+      "render": {
+        "schema_version": 2,
+        "policy_version": 1,
+        "source_hash": "d08898f972f15a66471d10877374c9d0fc3662745dd997cdcc5b11eaf91fa5e7",
+        "document": null,
+        "legacy": [],
+        "diagnostics": [
+          {
+            "block_id": null,
+            "line": 1,
+            "code": "journal_schema",
+            "message": "Проверьте поле «cover.image.alt»: его значение не соответствует формату журнала."
+          }
+        ],
+        "file_ids": [],
+        "image_file_ids": []
+      }
+    }
+  },
+  {
+    "name": "overlong-caption-invalid",
+    "valid": false,
+    "content": {
+      "format": "journal-v1",
+      "body": "{\"version\":1,\"eyebrow\":\"\",\"intro\":\"\",\"cover\":{\"kind\":\"poster\",\"eyebrow\":\"\",\"title\":\"Обложка\",\"caption\":\"яяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяяя\",\"tone\":\"mint\"},\"sections\":[{\"id\":\"start\",\"label\":\"\",\"title\":\"Старт\",\"blocks\":[{\"id\":\"body\",\"type\":\"text\",\"body\":\"Короткий текст\"}]}]}",
+      "render": {
+        "schema_version": 2,
+        "policy_version": 1,
+        "source_hash": "285de038a4bb24d7fbbcab95e474deff0a7f6a0c441523e6a7a5d68b2bf399b8",
+        "document": null,
+        "legacy": [],
+        "diagnostics": [
+          {
+            "block_id": null,
+            "line": 1,
+            "code": "journal_schema",
+            "message": "Проверьте поле «cover.poster.caption»: его значение не соответствует формату журнала."
+          }
+        ],
+        "file_ids": [],
+        "image_file_ids": []
+      }
+    }
+  },
+  {
+    "name": "invalid-json-keeps-source",
+    "valid": false,
+    "content": {
+      "format": "journal-v1",
+      "body": "{\"version\":1,",
+      "render": {
+        "schema_version": 2,
+        "policy_version": 1,
+        "source_hash": "29ba217d7c4eb3a3f03bb0b7984ab965fcc3f62d135f6fa95bfadde2ee94e285",
+        "document": null,
+        "legacy": [],
+        "diagnostics": [
+          {
+            "block_id": null,
+            "line": 1,
+            "code": "journal_json",
+            "message": "Не удалось прочитать JSON журнала. Проверьте скобки, поля и кавычки."
+          }
+        ],
+        "file_ids": [],
+        "image_file_ids": []
+      }
+    }
+  },
+  {
+    "name": "boolean-version-invalid",
+    "valid": false,
+    "content": {
+      "format": "journal-v1",
+      "body": "{\"version\":true,\"eyebrow\":\"\",\"intro\":\"\",\"cover\":null,\"sections\":[{\"id\":\"start\",\"label\":\"\",\"title\":\"Старт\",\"blocks\":[{\"id\":\"body\",\"type\":\"text\",\"body\":\"Текст\"}]}]}",
+      "render": {
+        "schema_version": 2,
+        "policy_version": 1,
+        "source_hash": "e6192f4fe8afe051539f9b4fb3f9c44cbb615587723e084216a638ad0f2ebf3c",
+        "document": null,
+        "legacy": [],
+        "diagnostics": [
+          {
+            "block_id": null,
+            "line": 1,
+            "code": "journal_json",
+            "message": "Не удалось прочитать JSON журнала. Проверьте скобки, поля и кавычки."
+          }
+        ],
+        "file_ids": [],
+        "image_file_ids": []
+      }
+    }
+  },
+  {
+    "name": "over-512-files-invalid",
+    "valid": false,
+    "content": {
+      "format": "journal-v1",
+      "body": "{\"version\":1,\"eyebrow\":\"\",\"intro\":\"\",\"cover\":null,\"sections\":[{\"id\":\"start\",\"label\":\"\",\"title\":\"Старт\",\"blocks\":[{\"id\":\"files-0\",\"type\":\"text\",\"body\":\"[Файл](file:file-ref-0) [Файл](file:file-ref-1) [Файл](file:file-ref-2) [Файл](file:file-ref-3) [Файл](file:file-ref-4) [Файл](file:file-ref-5) [Файл](file:file-ref-6) [Файл](file:file-ref-7) [Файл](file:file-ref-8) [Файл](file:file-ref-9) [Файл](file:file-ref-10) [Файл](file:file-ref-11) [Файл](file:file-ref-12) [Файл](file:file-ref-13) [Файл](file:file-ref-14) [Файл](file:file-ref-15) [Файл](file:file-ref-16) [Файл](file:file-ref-17) [Файл](file:file-ref-18) [Файл](file:file-ref-19) [Файл](file:file-ref-20) [Файл](file:file-ref-21) [Файл](file:file-ref-22) [Файл](file:file-ref-23) [Файл](file:file-ref-24) [Файл](file:file-ref-25) [Файл](file:file-ref-26) [Файл](file:file-ref-27) [Файл](file:file-ref-28) [Файл](file:file-ref-29) [Файл](file:file-ref-30) [Файл](file:file-ref-31) [Файл](file:file-ref-32) [Файл](file:file-ref-33) [Файл](file:file-ref-34) [Файл](file:file-ref-35) [Файл](file:file-ref-36) [Файл](file:file-ref-37) [Файл](file:file-ref-38) [Файл](file:file-ref-39) [Файл](file:file-ref-40) [Файл](file:file-ref-41) [Файл](file:file-ref-42) [Файл](file:file-ref-43) [Файл](file:file-ref-44) [Файл](file:file-ref-45) [Файл](file:file-ref-46) [Файл](file:file-ref-47) [Файл](file:file-ref-48) [Файл](file:file-ref-49) [Файл](file:file-ref-50) [Файл](file:file-ref-51) [Файл](file:file-ref-52) [Файл](file:file-ref-53) [Файл](file:file-ref-54) [Файл](file:file-ref-55) [Файл](file:file-ref-56) [Файл](file:file-ref-57) [Файл](file:file-ref-58) [Файл](file:file-ref-59) [Файл](file:file-ref-60) [Файл](file:file-ref-61) [Файл](file:file-ref-62) [Файл](file:file-ref-63) [Файл](file:file-ref-64) [Файл](file:file-ref-65) [Файл](file:file-ref-66) [Файл](file:file-ref-67) [Файл](file:file-ref-68) [Файл](file:file-ref-69) [Файл](file:file-ref-70) [Файл](file:file-ref-71) [Файл](file:file-ref-72) [Файл](file:file-ref-73) [Файл](file:file-ref-74) [Файл](file:file-ref-75) [Файл](file:file-ref-76) [Файл](file:file-ref-77) [Файл](file:file-ref-78) [Файл](file:file-ref-79) [Файл](file:file-ref-80) [Файл](file:file-ref-81) [Файл](file:file-ref-82) [Файл](file:file-ref-83) [Файл](file:file-ref-84) [Файл](file:file-ref-85) [Файл](file:file-ref-86) [Файл](file:file-ref-87) [Файл](file:file-ref-88) [Файл](file:file-ref-89) [Файл](file:file-ref-90) [Файл](file:file-ref-91) [Файл](file:file-ref-92) [Файл](file:file-ref-93) [Файл](file:file-ref-94) [Файл](file:file-ref-95) [Файл](file:file-ref-96) [Файл](file:file-ref-97) [Файл](file:file-ref-98) [Файл](file:file-ref-99) [Файл](file:file-ref-100) [Файл](file:file-ref-101) [Файл](file:file-ref-102) [Файл](file:file-ref-103) [Файл](file:file-ref-104) [Файл](file:file-ref-105) [Файл](file:file-ref-106) [Файл](file:file-ref-107) [Файл](file:file-ref-108) [Файл](file:file-ref-109) [Файл](file:file-ref-110) [Файл](file:file-ref-111) [Файл](file:file-ref-112) [Файл](file:file-ref-113) [Файл](file:file-ref-114) [Файл](file:file-ref-115) [Файл](file:file-ref-116) [Файл](file:file-ref-117) [Файл](file:file-ref-118) [Файл](file:file-ref-119) [Файл](file:file-ref-120) [Файл](file:file-ref-121) [Файл](file:file-ref-122) [Файл](file:file-ref-123) [Файл](file:file-ref-124) [Файл](file:file-ref-125) [Файл](file:file-ref-126) [Файл](file:file-ref-127) [Файл](file:file-ref-128) [Файл](file:file-ref-129) [Файл](file:file-ref-130) [Файл](file:file-ref-131) [Файл](file:file-ref-132) [Файл](file:file-ref-133) [Файл](file:file-ref-134) [Файл](file:file-ref-135) [Файл](file:file-ref-136) [Файл](file:file-ref-137) [Файл](file:file-ref-138) [Файл](file:file-ref-139) [Файл](file:file-ref-140) [Файл](file:file-ref-141) [Файл](file:file-ref-142) [Файл](file:file-ref-143) [Файл](file:file-ref-144) [Файл](file:file-ref-145) [Файл](file:file-ref-146) [Файл](file:file-ref-147) [Файл](file:file-ref-148) [Файл](file:file-ref-149)\"},{\"id\":\"files-150\",\"type\":\"text\",\"body\":\"[Файл](file:file-ref-150) [Файл](file:file-ref-151) [Файл](file:file-ref-152) [Файл](file:file-ref-153) [Файл](file:file-ref-154) [Файл](file:file-ref-155) [Файл](file:file-ref-156) [Файл](file:file-ref-157) [Файл](file:file-ref-158) [Файл](file:file-ref-159) [Файл](file:file-ref-160) [Файл](file:file-ref-161) [Файл](file:file-ref-162) [Файл](file:file-ref-163) [Файл](file:file-ref-164) [Файл](file:file-ref-165) [Файл](file:file-ref-166) [Файл](file:file-ref-167) [Файл](file:file-ref-168) [Файл](file:file-ref-169) [Файл](file:file-ref-170) [Файл](file:file-ref-171) [Файл](file:file-ref-172) [Файл](file:file-ref-173) [Файл](file:file-ref-174) [Файл](file:file-ref-175) [Файл](file:file-ref-176) [Файл](file:file-ref-177) [Файл](file:file-ref-178) [Файл](file:file-ref-179) [Файл](file:file-ref-180) [Файл](file:file-ref-181) [Файл](file:file-ref-182) [Файл](file:file-ref-183) [Файл](file:file-ref-184) [Файл](file:file-ref-185) [Файл](file:file-ref-186) [Файл](file:file-ref-187) [Файл](file:file-ref-188) [Файл](file:file-ref-189) [Файл](file:file-ref-190) [Файл](file:file-ref-191) [Файл](file:file-ref-192) [Файл](file:file-ref-193) [Файл](file:file-ref-194) [Файл](file:file-ref-195) [Файл](file:file-ref-196) [Файл](file:file-ref-197) [Файл](file:file-ref-198) [Файл](file:file-ref-199) [Файл](file:file-ref-200) [Файл](file:file-ref-201) [Файл](file:file-ref-202) [Файл](file:file-ref-203) [Файл](file:file-ref-204) [Файл](file:file-ref-205) [Файл](file:file-ref-206) [Файл](file:file-ref-207) [Файл](file:file-ref-208) [Файл](file:file-ref-209) [Файл](file:file-ref-210) [Файл](file:file-ref-211) [Файл](file:file-ref-212) [Файл](file:file-ref-213) [Файл](file:file-ref-214) [Файл](file:file-ref-215) [Файл](file:file-ref-216) [Файл](file:file-ref-217) [Файл](file:file-ref-218) [Файл](file:file-ref-219) [Файл](file:file-ref-220) [Файл](file:file-ref-221) [Файл](file:file-ref-222) [Файл](file:file-ref-223) [Файл](file:file-ref-224) [Файл](file:file-ref-225) [Файл](file:file-ref-226) [Файл](file:file-ref-227) [Файл](file:file-ref-228) [Файл](file:file-ref-229) [Файл](file:file-ref-230) [Файл](file:file-ref-231) [Файл](file:file-ref-232) [Файл](file:file-ref-233) [Файл](file:file-ref-234) [Файл](file:file-ref-235) [Файл](file:file-ref-236) [Файл](file:file-ref-237) [Файл](file:file-ref-238) [Файл](file:file-ref-239) [Файл](file:file-ref-240) [Файл](file:file-ref-241) [Файл](file:file-ref-242) [Файл](file:file-ref-243) [Файл](file:file-ref-244) [Файл](file:file-ref-245) [Файл](file:file-ref-246) [Файл](file:file-ref-247) [Файл](file:file-ref-248) [Файл](file:file-ref-249) [Файл](file:file-ref-250) [Файл](file:file-ref-251) [Файл](file:file-ref-252) [Файл](file:file-ref-253) [Файл](file:file-ref-254) [Файл](file:file-ref-255) [Файл](file:file-ref-256) [Файл](file:file-ref-257) [Файл](file:file-ref-258) [Файл](file:file-ref-259) [Файл](file:file-ref-260) [Файл](file:file-ref-261) [Файл](file:file-ref-262) [Файл](file:file-ref-263) [Файл](file:file-ref-264) [Файл](file:file-ref-265) [Файл](file:file-ref-266) [Файл](file:file-ref-267) [Файл](file:file-ref-268) [Файл](file:file-ref-269) [Файл](file:file-ref-270) [Файл](file:file-ref-271) [Файл](file:file-ref-272) [Файл](file:file-ref-273) [Файл](file:file-ref-274) [Файл](file:file-ref-275) [Файл](file:file-ref-276) [Файл](file:file-ref-277) [Файл](file:file-ref-278) [Файл](file:file-ref-279) [Файл](file:file-ref-280) [Файл](file:file-ref-281) [Файл](file:file-ref-282) [Файл](file:file-ref-283) [Файл](file:file-ref-284) [Файл](file:file-ref-285) [Файл](file:file-ref-286) [Файл](file:file-ref-287) [Файл](file:file-ref-288) [Файл](file:file-ref-289) [Файл](file:file-ref-290) [Файл](file:file-ref-291) [Файл](file:file-ref-292) [Файл](file:file-ref-293) [Файл](file:file-ref-294) [Файл](file:file-ref-295) [Файл](file:file-ref-296) [Файл](file:file-ref-297) [Файл](file:file-ref-298) [Файл](file:file-ref-299)\"},{\"id\":\"files-300\",\"type\":\"text\",\"body\":\"[Файл](file:file-ref-300) [Файл](file:file-ref-301) [Файл](file:file-ref-302) [Файл](file:file-ref-303) [Файл](file:file-ref-304) [Файл](file:file-ref-305) [Файл](file:file-ref-306) [Файл](file:file-ref-307) [Файл](file:file-ref-308) [Файл](file:file-ref-309) [Файл](file:file-ref-310) [Файл](file:file-ref-311) [Файл](file:file-ref-312) [Файл](file:file-ref-313) [Файл](file:file-ref-314) [Файл](file:file-ref-315) [Файл](file:file-ref-316) [Файл](file:file-ref-317) [Файл](file:file-ref-318) [Файл](file:file-ref-319) [Файл](file:file-ref-320) [Файл](file:file-ref-321) [Файл](file:file-ref-322) [Файл](file:file-ref-323) [Файл](file:file-ref-324) [Файл](file:file-ref-325) [Файл](file:file-ref-326) [Файл](file:file-ref-327) [Файл](file:file-ref-328) [Файл](file:file-ref-329) [Файл](file:file-ref-330) [Файл](file:file-ref-331) [Файл](file:file-ref-332) [Файл](file:file-ref-333) [Файл](file:file-ref-334) [Файл](file:file-ref-335) [Файл](file:file-ref-336) [Файл](file:file-ref-337) [Файл](file:file-ref-338) [Файл](file:file-ref-339) [Файл](file:file-ref-340) [Файл](file:file-ref-341) [Файл](file:file-ref-342) [Файл](file:file-ref-343) [Файл](file:file-ref-344) [Файл](file:file-ref-345) [Файл](file:file-ref-346) [Файл](file:file-ref-347) [Файл](file:file-ref-348) [Файл](file:file-ref-349) [Файл](file:file-ref-350) [Файл](file:file-ref-351) [Файл](file:file-ref-352) [Файл](file:file-ref-353) [Файл](file:file-ref-354) [Файл](file:file-ref-355) [Файл](file:file-ref-356) [Файл](file:file-ref-357) [Файл](file:file-ref-358) [Файл](file:file-ref-359) [Файл](file:file-ref-360) [Файл](file:file-ref-361) [Файл](file:file-ref-362) [Файл](file:file-ref-363) [Файл](file:file-ref-364) [Файл](file:file-ref-365) [Файл](file:file-ref-366) [Файл](file:file-ref-367) [Файл](file:file-ref-368) [Файл](file:file-ref-369) [Файл](file:file-ref-370) [Файл](file:file-ref-371) [Файл](file:file-ref-372) [Файл](file:file-ref-373) [Файл](file:file-ref-374) [Файл](file:file-ref-375) [Файл](file:file-ref-376) [Файл](file:file-ref-377) [Файл](file:file-ref-378) [Файл](file:file-ref-379) [Файл](file:file-ref-380) [Файл](file:file-ref-381) [Файл](file:file-ref-382) [Файл](file:file-ref-383) [Файл](file:file-ref-384) [Файл](file:file-ref-385) [Файл](file:file-ref-386) [Файл](file:file-ref-387) [Файл](file:file-ref-388) [Файл](file:file-ref-389) [Файл](file:file-ref-390) [Файл](file:file-ref-391) [Файл](file:file-ref-392) [Файл](file:file-ref-393) [Файл](file:file-ref-394) [Файл](file:file-ref-395) [Файл](file:file-ref-396) [Файл](file:file-ref-397) [Файл](file:file-ref-398) [Файл](file:file-ref-399) [Файл](file:file-ref-400) [Файл](file:file-ref-401) [Файл](file:file-ref-402) [Файл](file:file-ref-403) [Файл](file:file-ref-404) [Файл](file:file-ref-405) [Файл](file:file-ref-406) [Файл](file:file-ref-407) [Файл](file:file-ref-408) [Файл](file:file-ref-409) [Файл](file:file-ref-410) [Файл](file:file-ref-411) [Файл](file:file-ref-412) [Файл](file:file-ref-413) [Файл](file:file-ref-414) [Файл](file:file-ref-415) [Файл](file:file-ref-416) [Файл](file:file-ref-417) [Файл](file:file-ref-418) [Файл](file:file-ref-419) [Файл](file:file-ref-420) [Файл](file:file-ref-421) [Файл](file:file-ref-422) [Файл](file:file-ref-423) [Файл](file:file-ref-424) [Файл](file:file-ref-425) [Файл](file:file-ref-426) [Файл](file:file-ref-427) [Файл](file:file-ref-428) [Файл](file:file-ref-429) [Файл](file:file-ref-430) [Файл](file:file-ref-431) [Файл](file:file-ref-432) [Файл](file:file-ref-433) [Файл](file:file-ref-434) [Файл](file:file-ref-435) [Файл](file:file-ref-436) [Файл](file:file-ref-437) [Файл](file:file-ref-438) [Файл](file:file-ref-439) [Файл](file:file-ref-440) [Файл](file:file-ref-441) [Файл](file:file-ref-442) [Файл](file:file-ref-443) [Файл](file:file-ref-444) [Файл](file:file-ref-445) [Файл](file:file-ref-446) [Файл](file:file-ref-447) [Файл](file:file-ref-448) [Файл](file:file-ref-449)\"},{\"id\":\"files-450\",\"type\":\"text\",\"body\":\"[Файл](file:file-ref-450) [Файл](file:file-ref-451) [Файл](file:file-ref-452) [Файл](file:file-ref-453) [Файл](file:file-ref-454) [Файл](file:file-ref-455) [Файл](file:file-ref-456) [Файл](file:file-ref-457) [Файл](file:file-ref-458) [Файл](file:file-ref-459) [Файл](file:file-ref-460) [Файл](file:file-ref-461) [Файл](file:file-ref-462) [Файл](file:file-ref-463) [Файл](file:file-ref-464) [Файл](file:file-ref-465) [Файл](file:file-ref-466) [Файл](file:file-ref-467) [Файл](file:file-ref-468) [Файл](file:file-ref-469) [Файл](file:file-ref-470) [Файл](file:file-ref-471) [Файл](file:file-ref-472) [Файл](file:file-ref-473) [Файл](file:file-ref-474) [Файл](file:file-ref-475) [Файл](file:file-ref-476) [Файл](file:file-ref-477) [Файл](file:file-ref-478) [Файл](file:file-ref-479) [Файл](file:file-ref-480) [Файл](file:file-ref-481) [Файл](file:file-ref-482) [Файл](file:file-ref-483) [Файл](file:file-ref-484) [Файл](file:file-ref-485) [Файл](file:file-ref-486) [Файл](file:file-ref-487) [Файл](file:file-ref-488) [Файл](file:file-ref-489) [Файл](file:file-ref-490) [Файл](file:file-ref-491) [Файл](file:file-ref-492) [Файл](file:file-ref-493) [Файл](file:file-ref-494) [Файл](file:file-ref-495) [Файл](file:file-ref-496) [Файл](file:file-ref-497) [Файл](file:file-ref-498) [Файл](file:file-ref-499) [Файл](file:file-ref-500) [Файл](file:file-ref-501) [Файл](file:file-ref-502) [Файл](file:file-ref-503) [Файл](file:file-ref-504) [Файл](file:file-ref-505) [Файл](file:file-ref-506) [Файл](file:file-ref-507) [Файл](file:file-ref-508) [Файл](file:file-ref-509) [Файл](file:file-ref-510) [Файл](file:file-ref-511) [Файл](file:file-ref-512)\"}]}]}",
+      "render": {
+        "schema_version": 2,
+        "policy_version": 1,
+        "source_hash": "6ac996f4417311a3cc36372cd3ffb57b3d41c2fcca82854cf3ea36fe85b495a0",
+        "document": null,
+        "legacy": [],
+        "diagnostics": [
+          {
+            "block_id": null,
+            "line": 1,
+            "code": "journal_file_limit",
+            "message": "В журнале допускается не больше 512 разных файлов. Разделите большой материал."
+          }
+        ],
+        "file_ids": [],
+        "image_file_ids": []
+      }
+    }
+  }
+]

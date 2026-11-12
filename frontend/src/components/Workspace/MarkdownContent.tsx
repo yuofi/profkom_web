@@ -9,6 +9,7 @@ import type { UserRef } from "../../utils/api/contract";
 import { apiUrl } from "../../utils/api";
 import s from "./Workspace.module.css";
 import md from "./MarkdownContent.module.css";
+import { journalMarkdown } from "./journalMarkdown";
 // Formulas, highlighting and galleries load only for a document that uses them.
 const MarkdownCode = lazy(() => import("./MarkdownCode").then(module => ({ default: module.MarkdownCode })));
 const MarkdownCodeBlock = lazy(() => import("./MarkdownCode").then(module => ({ default: module.MarkdownCodeBlock })));
@@ -74,12 +75,12 @@ function ChecklistCheckbox({ body, onMark, busy, pending, ...props }: InputHTMLA
 }
 /** What a render needs inside the custom elements; read from context so that the element
  * types below stay the same across renders and a checkbox is never remounted mid-click. */
-interface MarkdownState { body: string; onMark?: (offset: number, checked: boolean) => void; busy: boolean; pending?: readonly number[]; mentionUsers?: UserRef[]; renderFence?: MarkdownContentProps["renderFence"]; materialFiles?: boolean; anchorPrefix?: string }
+interface MarkdownState { body: string; onMark?: (offset: number, checked: boolean) => void; busy: boolean; pending?: readonly number[]; mentionUsers?: UserRef[]; renderFence?: MarkdownContentProps["renderFence"]; materialFiles?: boolean; anchorPrefix?: string; sectionAnchors?: Readonly<Record<string, string>>; materialFileIds?: readonly string[] }
 const MarkdownStateContext = createContext<MarkdownState>({ body: "", busy: false });
 const materialFileUrl = (url: string) => /^file:file-[A-Za-z0-9_-]{1,100}$/.test(url) ? `/api/files/${encodeURIComponent(url.slice(5))}/content` : url;
 function MarkdownLink({ node, href, children, ...props }: ComponentProps<"a"> & ExtraProps) {
   void node;
-  const { mentionUsers, anchorPrefix } = useContext(MarkdownStateContext);
+  const { mentionUsers, anchorPrefix, sectionAnchors } = useContext(MarkdownStateContext);
   const profile = mentionUsers !== undefined && href?.match(/^\/contacts\/([1-9][0-9]*)$/);
   if (profile) {
     const user = mentionUsers?.find(person => person.user_id !== null && String(person.user_id) === profile[1]);
@@ -88,8 +89,8 @@ function MarkdownLink({ node, href, children, ...props }: ComponentProps<"a"> & 
   // Material headings are scoped to their reader/preview. Resolve author-facing
   // anchors there without changing links in task comments or to other pages.
   const scoped = anchorPrefix && /^#(?:section-[1-9]\d{0,4}|[a-z][a-z0-9-]{0,63}-heading-[1-9]\d{0,3})$/.test(href ?? "");
-  const target = scoped ? `${anchorPrefix}-${href!.slice(1)}` : null;
-  return <a {...props} href={target ? `#${target}` : href} onClick={target ? event => {
+  const target = href?.startsWith("#") && sectionAnchors?.[href.slice(1)] || (scoped ? `${anchorPrefix}-${href!.slice(1)}` : null);
+  return <a {...props} {...(sectionAnchors && href?.startsWith("https:") ? { target: "_blank", rel: "noopener noreferrer" } : {})} href={target ? `#${target}` : href} onClick={target ? event => {
     props.onClick?.(event);
     if (!event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.button === 0) document.getElementById(target)?.focus({ preventScroll: true });
   } : props.onClick}>{children}</a>;
@@ -109,14 +110,14 @@ const components: Components = {
   input: MarkdownInput,
   table: ({ children }) => <div className={md.tableWrap} tabIndex={0} role="region" aria-label="Таблица Markdown"><table>{children}</table></div>,
   pre: function MarkdownPre({ children, node }) {
-    const { renderFence } = useContext(MarkdownStateContext);
+    const { renderFence, sectionAnchors } = useContext(MarkdownStateContext);
     const extension = node?.children.some(
       (n) =>
         n.type === "element" &&
         n.tagName === "code" &&
         Array.isArray(n.properties.className) &&
         n.properties.className.some(
-          (c) => c === "language-gallery" || c === "language-chip",
+          (c) => c === "language-gallery" || c === "language-chip" && !sectionAnchors,
         ),
     );
     const codeNode = node?.children.find(child => child.type === "element" && child.tagName === "code");
@@ -128,44 +129,50 @@ const components: Components = {
       const rendered = renderFence(name, String(codeNode.properties["data-fence-meta"] ?? ""), source);
       if (rendered !== undefined) return rendered;
     }
-    return extension ? <div>{children}</div> : plainLabel(name) === "Текст" ? <PlainCodeBlock>{children}</PlainCodeBlock>
+    return extension ? <div>{children}</div> : plainLabel(name) === "Текст" || name === "chip" && sectionAnchors ? <PlainCodeBlock>{children}</PlainCodeBlock>
       : <Suspense fallback={<PlainCodeBlock language={name}>{children}</PlainCodeBlock>}><MarkdownCodeBlock language={name}>{children}</MarkdownCodeBlock></Suspense>;
   },
   code: function MarkdownCodeElement({ className, children }) {
-    const { materialFiles } = useContext(MarkdownStateContext);
+    const { materialFiles, materialFileIds, sectionAnchors } = useContext(MarkdownStateContext);
     const source = String(children).replace(/\n$/, "");
-    const gallery = materialFiles ? source.split("\n").map(line => { const divider = line.indexOf("|");return divider < 0 ? materialFileUrl(line.trim()) : `${materialFileUrl(line.slice(0, divider).trim())}${line.slice(divider)}`; }).join("\n") : source;
+    const gallery = materialFiles ? source.split("\n").filter(line => !materialFileIds || materialFileIds.includes(line.split("|", 1)[0].trim().slice(5))).map(line => { const divider = line.indexOf("|");return divider < 0 ? materialFileUrl(line.trim()) : `${materialFileUrl(line.slice(0, divider).trim())}${line.slice(divider)}`; }).join("\n") : source;
     return className === "language-gallery" ? (
       <Suspense fallback={null}><Gallery
         initialContent={gallery}
         mode="view"
       /></Suspense>
-    ) : className === "language-chip" ? (
+    ) : className === "language-chip" && !sectionAnchors ? (
       <ContactChip
         initialContent={String(children).replace(/\n$/, "")}
         mode="view"
       />
-    ) : className?.startsWith("language-") ? (
+    ) : className === "language-chip" && sectionAnchors ? <code>{String(children)}</code> : className?.startsWith("language-") ? (
       <Suspense fallback={<code className={className}>{String(children)}</code>}><MarkdownCode className={className} source={String(children)} /></Suspense>
     ) : <code className={className}>{String(children)}</code>;
   },
 };
 /** A checklist mark is one source offset (a string index of `body`, in UTF-16 code units as
  * micromark counts them): the reader command flips that marker only. */
-export interface MarkdownContentProps { body: string; onChecklistToggle?: (offset: number, checked: boolean) => void; checklistDisabled?: boolean; checklistPending?: readonly number[]; mentionUsers?: UserRef[]; renderFence?: (language: string, meta: string, source: string) => ReactNode; materialFiles?: boolean; anchorPrefix?: string }
-export function MarkdownContent({ body, onChecklistToggle, checklistDisabled = false, checklistPending, mentionUsers, renderFence, materialFiles = false, anchorPrefix }: MarkdownContentProps) {
+export interface MarkdownContentProps { body: string; onChecklistToggle?: (offset: number, checked: boolean) => void; checklistDisabled?: boolean; checklistPending?: readonly number[]; mentionUsers?: UserRef[]; renderFence?: (language: string, meta: string, source: string) => ReactNode; materialFiles?: boolean; anchorPrefix?: string; sectionAnchors?: Readonly<Record<string, string>>; materialFileIds?: readonly string[] }
+// A journal already owns h1/h2. Body headings stay below that structure, including
+// headings in deferred panels, without altering the author's saved Markdown.
+const journalComponents: Components = { ...components,
+  h1: ({ children }) => <h3>{children}</h3>, h2: ({ children }) => <h3>{children}</h3>,
+  h3: ({ children }) => <h4>{children}</h4>, h4: ({ children }) => <h5>{children}</h5>, h5: ({ children }) => <h6>{children}</h6>,
+};
+export function MarkdownContent({ body, onChecklistToggle, checklistDisabled = false, checklistPending, mentionUsers, renderFence, materialFiles = false, anchorPrefix, sectionAnchors, materialFileIds }: MarkdownContentProps) {
   const needsMath = body.includes("$"), math = useMath(needsMath);
   // Until formulas load, a marker inside $$…$$ would look like a task: no marks meanwhile.
   const marksBusy = checklistDisabled || (needsMath && !math);
   return (
-    <div className={`${s.markdown} ${md.content}`}><MarkdownStateContext.Provider value={{ body, onMark: onChecklistToggle, busy: marksBusy, pending: checklistPending, mentionUsers, renderFence, materialFiles, anchorPrefix }}>
+    <div className={`${s.markdown} ${md.content}`}><MarkdownStateContext.Provider value={{ body, onMark: onChecklistToggle, busy: marksBusy, pending: checklistPending, mentionUsers, renderFence, materialFiles, anchorPrefix, sectionAnchors, materialFileIds }}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks, ...(renderFence ? [remarkFenceMetadata] : []), ...(math ? [math.remarkMath] : []), [remarkChecklistPositions, { source: body }]]}
+        remarkPlugins={[remarkGfm, remarkBreaks, ...(sectionAnchors ? [[journalMarkdown, { source: body }] as [typeof journalMarkdown, { source: string }]] : []), ...(renderFence ? [remarkFenceMetadata] : []), ...(math ? [math.remarkMath] : []), [remarkChecklistPositions, { source: body }]]}
         rehypePlugins={math ? [[math.rehypeKatex, { trust: false, strict: "error", maxExpand: 1000, maxSize: 20, macros: {} }]] : []}
         skipHtml
         // Files of a material are API addresses, checked on every request (decision 23).
-        urlTransform={(url) => defaultUrlTransform(apiUrl(materialFiles ? materialFileUrl(url) : url))}
-        components={components}
+        urlTransform={(url, key, node) => materialFileIds && node.tagName === "img" && key === "src" && (!url.startsWith("file:") || !materialFileIds.includes(url.slice(5))) ? undefined : defaultUrlTransform(apiUrl(materialFiles ? materialFileUrl(url) : url))}
+        components={sectionAnchors ? journalComponents : components}
       >
         {body}
       </ReactMarkdown>

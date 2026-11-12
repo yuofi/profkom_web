@@ -2,7 +2,7 @@
 import ts from "typescript";
 import { fileURLToPath } from "node:url";
 
-const paths = ["../utils/api/contract.ts", "../utils/api/types.ts", "../utils/api/kkr.api.ts", "../utils/api/profileFeatures.api.ts", "../utils/api/taskChat.types.ts", "../utils/api/blockLifecycle.types.ts"].map(p => fileURLToPath(new URL(p, import.meta.url)));
+const paths = ["../utils/api/contract.ts", "../utils/api/types.ts", "../utils/api/kkr.api.ts", "../utils/api/profileFeatures.api.ts", "../utils/api/taskChat.types.ts", "../utils/api/blockLifecycle.types.ts", "../utils/api/journal.ts"].map(p => fileURLToPath(new URL(p, import.meta.url)));
 const program = ts.createProgram(paths, { strict: true, target: ts.ScriptTarget.ESNext });
 const checker = program.getTypeChecker();
 const sources = paths.map(p => program.getSourceFile(p)!);
@@ -16,7 +16,7 @@ export function wireIssues(name: string, value: unknown): string[] {
 function validate(type: ts.Type, value: unknown, path: string, depth = 0): string[] {
   // A guide tree has up to 12 HTML levels; each traverses an object, an array and
   // nullable/optional types. This is a test walker, not the runtime tree policy.
-  const limit = /^(Material|MaterialText|GuideRender|GuideNode)(?:\.|\[|$)/.test(path) ? 80 : 20;
+  const limit = /^(Material|MaterialText|GuideRender|GuideNode|Journal\w*)(?:\.|\[|$)/.test(path) ? 80 : 20;
   if (depth > limit) throw Error(`DTO recursion limit at ${path}`);
   if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return [];
   if (type.isUnion()) {

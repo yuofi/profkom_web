@@ -3,9 +3,16 @@ import type { MaterialText } from "../../utils/api/contract";
 import { MarkdownContent } from "./MarkdownContent";
 import s from "./MaterialContent.module.css";
 const GuideEmbeds = lazy(() => import("./GuideEmbeds").then(module => ({ default: module.GuideEmbeds })));
+const JournalGuide = lazy(() => import("./JournalGuide").then(module => ({ default: module.JournalGuide })));
+
+export function MaterialContent({ body = "", content, materialId, title = "Гайд", description, showToc = true }: { body?: string; content?: MaterialText; materialId?: string; title?: string; description?: string; showToc?: boolean }) {
+  const instance = useId(), id = materialId ?? instance;
+  return content?.format === "journal-v1" ? <Suspense fallback={<p role="status">Подготавливаем оформление…</p>}><JournalGuide content={content} materialId={id} title={title} description={description} showToc={showToc} /></Suspense>
+    : <StandardMaterialContent body={body} content={content} materialId={id} showToc={showToc} />;
+}
 
 /** Derive navigation from the actual safe Markdown output, including setext headings. */
-export function MaterialContent({ body = "", content, materialId, showToc = true }: { body?: string; content?: MaterialText; materialId?: string; showToc?: boolean }) {
+function StandardMaterialContent({ body = "", content, materialId, showToc = true }: { body?: string; content?: MaterialText; materialId?: string; showToc?: boolean }) {
   const root = useRef<HTMLDivElement>(null), instance = useId();
   const text = content?.body ?? body, id = materialId ?? instance;
   const prefix = `guide-${encodeURIComponent(id).replace(/%/g, "_")}`;

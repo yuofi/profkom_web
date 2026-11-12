@@ -371,6 +371,11 @@ def compile_bounded(body: str) -> dict:
     """
     if len(body.encode("utf-8", errors="surrogatepass")) > MAX_BODY_BYTES:
         return compile_content(body)
+    return compile_isolated(body, Path(__file__).resolve())
+
+
+def compile_isolated(body: str, script: Path) -> dict:
+    """Shared admission/deadline for both pure guide compilers."""
     if not _ADMITTED.acquire(blocking=False):
         raise EmbedCompileBusy("Guide preview queue is full")
     acquired = False
@@ -378,7 +383,7 @@ def compile_bounded(body: str) -> dict:
         acquired = _RUNNING.acquire(timeout=QUEUE_TIMEOUT)
         if not acquired:
             raise EmbedCompileBusy("Guide compiler is busy")
-        process = subprocess.Popen([sys.executable, "-I", str(Path(__file__).resolve()), "--compile"],
+        process = subprocess.Popen([sys.executable, "-I", str(script), "--compile"],
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         try:
             output, _ = process.communicate(json.dumps(body, ensure_ascii=True).encode("utf-8"), timeout=COMPILE_TIMEOUT)
