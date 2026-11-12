@@ -2,46 +2,56 @@
   "tracker": {
     "title": "Как работать с трекером",
     "description": "Создать задачу, назначить исполнителей и принять результат.",
-    "source": "tracker.md",
+    "source": "journal/tracker.json",
     "audience": "everyone",
     "material_id": "6d7192f2-74cb-4967-9e35-3938e8a0b15c",
     "published_url": "https://profcom-cmc.ru/materials/6d7192f2-74cb-4967-9e35-3938e8a0b15c",
-    "published_source_sha256": "8a7344ddcb9d807268d1ee5465af1c00a3de183f88e54b76e8f4176570012f36"
+    "published_source_sha256": "e147d032652c0765c12e5bdae60a604f14c189d048bee6f8f017b5afb5bd6d2f",
+    "published_format": "journal-v1",
+    "published_revision": 8
   },
   "overview": {
     "title": "Сайт Профкома: руководство участника",
     "description": "Где найти команды, задачи, контакты и материалы.",
-    "source": "overview.md",
+    "source": "journal/overview.json",
     "audience": "everyone",
     "material_id": "dd268682-8837-4b24-a072-d053cab7fadb",
     "published_url": "https://profcom-cmc.ru/materials/dd268682-8837-4b24-a072-d053cab7fadb",
-    "published_source_sha256": "fa94737f84585b11bae5c723460ad97a484b8d279bf34494224f36441d32f7ff"
+    "published_source_sha256": "dd6d922dcd77fd54989e5a508bf4eb73b935507b40a99127ca74ecd87e826084",
+    "published_format": "journal-v1",
+    "published_revision": 8
   },
   "kkr": {
     "title": "Как заполнять ККР на сайте",
     "description": "Проверить условия, заполнить оценку и сверить итог сезона.",
-    "source": "kkr.md",
+    "source": "journal/kkr.json",
     "audience": "leadership",
     "material_id": "897ffde7-b9cc-486f-bc99-042401ecaf97",
     "published_url": "https://profcom-cmc.ru/materials/897ffde7-b9cc-486f-bc99-042401ecaf97",
-    "published_source_sha256": "56e54d29b6d6c5fa2d5f9f8107e8eab8af5ca476b527a6bdbd255d49692ee291"
+    "published_source_sha256": "5f89e7e13f924b9e9bfc400aac417825b0857590d0570cface6c62a99f4c1599",
+    "published_format": "journal-v1",
+    "published_revision": 8
   },
   "authoring": {
     "title": "Как создавать и обновлять гайды",
     "description": "Сохранить черновик, оформить и опубликовать гайд.",
-    "source": "authoring.md",
+    "source": "journal/authoring.json",
     "audience": "everyone",
     "material_id": "045577be-609d-44fd-a307-a211e304a358",
     "published_url": "https://profcom-cmc.ru/materials/045577be-609d-44fd-a307-a211e304a358",
-    "published_source_sha256": "3d21101a218428bb5cc0d7f310807330bc3d49080a0e1a45affebed1679b2bfb"
+    "published_source_sha256": "d97b1be183844754e357f6a50b798712377b64106a73c6a7dfaec22677850143",
+    "published_format": "journal-v1",
+    "published_revision": 8
   },
   "formatting": {
     "title": "Markdown и HTML: справочник оформления",
     "description": "Короткие примеры Markdown, кнопок, плашек и таблиц.",
-    "source": "formatting.md",
+    "source": "journal/formatting.json",
     "audience": "everyone",
     "material_id": "ac5b8a0b-7aed-4a0a-88e2-ba9d441b5ed2",
     "published_url": "https://profcom-cmc.ru/materials/ac5b8a0b-7aed-4a0a-88e2-ba9d441b5ed2",
-    "published_source_sha256": "830b323ba583e2cab9989a938160652bda615eedc985a853af6845386bfcf4ec"
+    "published_source_sha256": "691d7a1b88dd932d62a0c92ef88e7c2f9183f62b672ff5c761055918e6ed8bbb",
+    "published_format": "journal-v1",
+    "published_revision": 8
   }
 }
