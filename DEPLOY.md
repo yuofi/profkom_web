@@ -4,7 +4,14 @@
 Git-операции, SSH, тестовый сервер, production и реальные VK/S3 требуют явного
 разрешения владельца на конкретную среду и действие. См. [AGENTS.md](AGENTS.md).
 
-Последнее обновление: [Журнал и пять руководств — 12 ноября 2026](docs/operations/GUIDES_JOURNAL_RELEASE_20261112.md),
+Последнее обновление: [Гайды в «Общих документах» — 12 ноября 2026](docs/operations/GUIDES_CATALOG_RELEASE_20261112.md),
+backend и frontend `de8aad1` на новом `profcom-cmc.ru`. Добавлена nullable
+`materials.catalog_section` с сохранением всех прежних значений; пять гайдов
+перенесены без изменения источников, файлов и прав. SQLite DELETE, настройки
+и сертификаты сохранены. Откат разделов — через revision-protected PATCH,
+без восстановления старой БД поверх новых записей.
+
+Предыдущее обновление: [Журнал и пять руководств — 12 ноября 2026](docs/operations/GUIDES_JOURNAL_RELEASE_20261112.md),
 backend и frontend `8fad024` на новом `profcom-cmc.ru`. Схема и авторские значения
 сохранены; пересчитана одна существующая генерируемая заглушка. Конфигурация не
 менялась: `GUIDE_HTML_EMBEDS_ENABLED=true`, SQLite DELETE. После публикации Journal
