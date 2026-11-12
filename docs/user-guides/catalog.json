@@ -1,47 +1,47 @@
 {
   "tracker": {
     "title": "Как работать с трекером",
-    "description": "От создания задачи до готового результата: очереди, исполнители, статусы, файлы и уведомления команды.",
+    "description": "Создать задачу, назначить исполнителей и принять результат.",
     "source": "tracker.md",
     "audience": "everyone",
     "material_id": "6d7192f2-74cb-4967-9e35-3938e8a0b15c",
     "published_url": "https://profcom-cmc.ru/materials/6d7192f2-74cb-4967-9e35-3938e8a0b15c",
-    "published_source_sha256": "49535b0133130c13fbfc3b3420547960289f29c3282218d24641869679d7f096"
+    "published_source_sha256": "8a7344ddcb9d807268d1ee5465af1c00a3de183f88e54b76e8f4176570012f36"
   },
   "overview": {
     "title": "Сайт Профкома: руководство участника",
-    "description": "Первые шаги, профиль, команды, контакты, задачи, календарь, материалы и помощь.",
+    "description": "Где найти команды, задачи, контакты и материалы.",
     "source": "overview.md",
     "audience": "everyone",
     "material_id": "dd268682-8837-4b24-a072-d053cab7fadb",
     "published_url": "https://profcom-cmc.ru/materials/dd268682-8837-4b24-a072-d053cab7fadb",
-    "published_source_sha256": "846998629d2809cd775dfad9d975a7784035e40e2d1623113073e3458d5c9b43"
+    "published_source_sha256": "fa94737f84585b11bae5c723460ad97a484b8d279bf34494224f36441d32f7ff"
   },
   "kkr": {
     "title": "Как заполнять ККР на сайте",
-    "description": "Руководителям: оценка задач и исполнителей, часы, сроки, сезон и проверка итогов.",
+    "description": "Проверить условия, заполнить оценку и сверить итог сезона.",
     "source": "kkr.md",
     "audience": "leadership",
     "material_id": "897ffde7-b9cc-486f-bc99-042401ecaf97",
     "published_url": "https://profcom-cmc.ru/materials/897ffde7-b9cc-486f-bc99-042401ecaf97",
-    "published_source_sha256": "c49972cdc84fdfd044ded2c8bdc7e8eea2602501fdd13ca518611a202504cc2a"
+    "published_source_sha256": "56e54d29b6d6c5fa2d5f9f8107e8eab8af5ca476b527a6bdbd255d49692ee291"
   },
   "authoring": {
     "title": "Как создавать и обновлять гайды",
-    "description": "Черновики и публикация, права читателей, изображения и оформленные вставки — пошагово.",
+    "description": "Сохранить черновик, оформить и опубликовать гайд.",
     "source": "authoring.md",
     "audience": "everyone",
     "material_id": "045577be-609d-44fd-a307-a211e304a358",
     "published_url": "https://profcom-cmc.ru/materials/045577be-609d-44fd-a307-a211e304a358",
-    "published_source_sha256": "43698f7e49fdb5695eaea05c60b50aa4d24188ce3d38f8a2164db055a2a33fd0"
+    "published_source_sha256": "3d21101a218428bb5cc0d7f310807330bc3d49080a0e1a45affebed1679b2bfb"
   },
   "formatting": {
     "title": "Markdown и HTML: справочник оформления",
-    "description": "Поддерживаемая разметка, таблицы, ссылки, изображения, кнопки, плашки и готовые примеры.",
+    "description": "Короткие примеры Markdown, кнопок, плашек и таблиц.",
     "source": "formatting.md",
     "audience": "everyone",
     "material_id": "ac5b8a0b-7aed-4a0a-88e2-ba9d441b5ed2",
     "published_url": "https://profcom-cmc.ru/materials/ac5b8a0b-7aed-4a0a-88e2-ba9d441b5ed2",
-    "published_source_sha256": "e72a65a92163c793cd0e399e3bf973059afab7d483730987cfa8776c14ffd14b"
+    "published_source_sha256": "830b323ba583e2cab9989a938160652bda615eedc985a853af6845386bfcf4ec"
   }
 }
